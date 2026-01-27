@@ -96,11 +96,16 @@ router.post('/process', auth, upload.single('file'), async (req, res) => {
             const sql = `SELECT ${safeCols} FROM \`${table}\` WHERE \`${targetColumn}\` IN (${placeholders})`;
 
             try {
+                console.log(`[Lookup] Batch Query: ${sql}`);
+                console.log(`[Lookup] Values (First 3):`, batch.slice(0, 3));
+
                 const [rows] = await pool.execute(sql, batch);
+                console.log(`[Lookup] Rows found: ${rows.length}`);
 
                 rows.forEach(row => {
                     // key is the value of targetColumn, trimmed
                     const key = String(row[targetColumn]).trim();
+                    console.log(`[Lookup] match found for key: '${key}'`);
                     resultMap.set(key, row);
                 });
             } catch (err) {
@@ -111,10 +116,14 @@ router.post('/process', auth, upload.single('file'), async (req, res) => {
             }
         }
 
+        console.log(`[Lookup] Total Matches in Map: ${resultMap.size}`);
+
         // 5. Merge Data
-        const enrichedData = data.map(row => {
+        const enrichedData = data.map((row, index) => {
             const lookupVal = String(row[sourceColumn] || '').trim();
             const match = resultMap.get(lookupVal);
+
+            if (index < 3) console.log(`[Lookup] Row ${index} val: '${lookupVal}' Found: ${!!match}`);
 
             if (match) {
                 returnCols.forEach(col => {

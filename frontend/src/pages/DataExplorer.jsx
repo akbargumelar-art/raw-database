@@ -63,6 +63,63 @@ const DataExplorer = () => {
     const [sqlResult, setSqlResult] = useState(null);
     const [sqlLoading, setSqlLoading] = useState(false);
 
+    // SQL Result Management (Client-side)
+    const [sqlSearch, setSqlSearch] = useState('');
+    const [sqlPage, setSqlPage] = useState(1);
+    const [sqlPageSize, setSqlPageSize] = useState(50);
+
+    // Reset SQL pagination when query changes
+    useEffect(() => {
+        if (sqlResult) {
+            setSqlSearch('');
+            setSqlPage(1);
+        }
+    }, [sqlResult]);
+
+    const getProcessedSqlData = () => {
+        if (!sqlResult?.data || !Array.isArray(sqlResult.data)) return [];
+
+        let filtered = sqlResult.data;
+        if (sqlSearch) {
+            const lowerSearch = sqlSearch.toLowerCase();
+            filtered = filtered.filter(row =>
+                Object.values(row).some(val =>
+                    String(val).toLowerCase().includes(lowerSearch)
+                )
+            );
+        }
+        return filtered;
+    };
+
+    const handleSqlExport = () => {
+        if (!sqlResult?.data?.length) return;
+
+        // Get displayed data (respecting filter)
+        const dataToExport = getProcessedSqlData();
+        if (dataToExport.length === 0) return;
+
+        const headers = Object.keys(dataToExport[0]);
+        const csvContent = [
+            headers.join(','),
+            ...dataToExport.map(row =>
+                headers.map(header => {
+                    const val = row[header] ?? '';
+                    const stringVal = String(val).replace(/"/g, '""');
+                    return `"${stringVal}"`;
+                }).join(',')
+            )
+        ].join('\n');
+
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `query_result_${Date.now()}.csv`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    };
+
     // Column visibility
     const [visibleColumns, setVisibleColumns] = useState([]);
     const [showColumnPicker, setShowColumnPicker] = useState(false);
@@ -290,30 +347,89 @@ const DataExplorer = () => {
                         </button>
                     </div>
                     {sqlResult && (
-                        <div className="border-t border-gray-800 pt-4">
+                        <div className="border-t border-gray-800 pt-4 space-y-4">
                             {sqlResult.error ? (
                                 <p className="text-red-400">{sqlResult.error}</p>
                             ) : sqlResult.type === 'select' ? (
-                                <div className="overflow-x-auto">
-                                    <table className="data-table">
-                                        <thead>
-                                            <tr>
-                                                {sqlResult.data[0] && Object.keys(sqlResult.data[0]).map(key => (
-                                                    <th key={key}>{key}</th>
-                                                ))}
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            {sqlResult.data.map((row, i) => (
-                                                <tr key={i}>
-                                                    {Object.values(row).map((val, j) => (
-                                                        <td key={j}>{String(val ?? '')}</td>
+                                <>
+                                    {/* SQL Result Toolbar */}
+                                    <div className="flex flex-wrap gap-4 justify-between items-center">
+                                        <div className="flex items-center gap-2 flex-1 max-w-md">
+                                            <Search className="w-4 h-4 text-gray-500" />
+                                            <input
+                                                type="text"
+                                                value={sqlSearch}
+                                                onChange={e => { setSqlSearch(e.target.value); setSqlPage(1); }}
+                                                placeholder="Filter results..."
+                                                className="input-dark py-1 text-sm w-full"
+                                            />
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            <span className="text-sm text-gray-400">
+                                                {getProcessedSqlData().length} rows found
+                                            </span>
+                                            <button onClick={handleSqlExport} className="btn-secondary py-1 text-xs flex items-center gap-2">
+                                                <Download className="w-3 h-3" /> Export CSV
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    {/* Table */}
+                                    <div className="overflow-x-auto border border-gray-800 rounded-lg max-h-[500px]">
+                                        <table className="data-table">
+                                            <thead className="sticky top-0 bg-gray-900 z-10 shadow-sm">
+                                                <tr>
+                                                    {sqlResult.data[0] && Object.keys(sqlResult.data[0]).map(key => (
+                                                        <th key={key} className="whitespace-nowrap">{key}</th>
                                                     ))}
                                                 </tr>
-                                            ))}
-                                        </tbody>
-                                    </table>
-                                </div>
+                                            </thead>
+                                            <tbody>
+                                                {getProcessedSqlData()
+                                                    .slice((sqlPage - 1) * sqlPageSize, sqlPage * sqlPageSize)
+                                                    .map((row, i) => (
+                                                        <tr key={i} className="hover:bg-gray-800/50">
+                                                            {Object.values(row).map((val, j) => (
+                                                                <td key={j} className="whitespace-nowrap max-w-xs truncate" title={String(val ?? '')}>
+                                                                    {String(val ?? '')}
+                                                                </td>
+                                                            ))}
+                                                        </tr>
+                                                    ))}
+                                                {getProcessedSqlData().length === 0 && (
+                                                    <tr>
+                                                        <td colSpan="100%" className="text-center py-8 text-gray-500">No matching records</td>
+                                                    </tr>
+                                                )}
+                                            </tbody>
+                                        </table>
+                                    </div>
+
+                                    {/* Pagination */}
+                                    {getProcessedSqlData().length > sqlPageSize && (
+                                        <div className="flex items-center justify-between text-sm">
+                                            <div className="text-gray-400">
+                                                Page {sqlPage} of {Math.ceil(getProcessedSqlData().length / sqlPageSize)}
+                                            </div>
+                                            <div className="flex gap-2">
+                                                <button
+                                                    onClick={() => setSqlPage(p => Math.max(1, p - 1))}
+                                                    disabled={sqlPage === 1}
+                                                    className="btn-ghost disabled:opacity-50 p-1"
+                                                >
+                                                    <ChevronLeft className="w-5 h-5" />
+                                                </button>
+                                                <button
+                                                    onClick={() => setSqlPage(p => Math.min(Math.ceil(getProcessedSqlData().length / sqlPageSize), p + 1))}
+                                                    disabled={sqlPage >= Math.ceil(getProcessedSqlData().length / sqlPageSize)}
+                                                    className="btn-ghost disabled:opacity-50 p-1"
+                                                >
+                                                    <ChevronRight className="w-5 h-5" />
+                                                </button>
+                                            </div>
+                                        </div>
+                                    )}
+                                </>
                             ) : (
                                 <p className="text-green-400">{sqlResult.affectedRows} rows affected</p>
                             )}

@@ -52,7 +52,7 @@ router.post('/login', async (req, res) => {
 
         if (users.length === 0) {
             console.log('No user found with username:', username);
-            return res.status(401).json({ error: 'Invalid credentials.' });
+            return res.status(401).json({ error: 'Username not found. Please check your credentials.' });
         }
 
         const user = users[0];
@@ -62,7 +62,7 @@ router.post('/login', async (req, res) => {
 
         if (!isMatch) {
             console.log('Password does not match');
-            return res.status(401).json({ error: 'Invalid credentials.' });
+            return res.status(401).json({ error: 'Incorrect password. Please try again.' });
         }
 
         const token = jwt.sign(

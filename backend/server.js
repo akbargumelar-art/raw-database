@@ -10,8 +10,10 @@ console.log('Server starting... Environment check:', {
 });
 
 const { rootPool, getInternalPool } = require('./config/db');
+console.log('DB Config loaded');
 
 // Import routes
+console.log('Importing routes...');
 const authRoutes = require('./routes/auth');
 const databaseRoutes = require('./routes/databases');
 const schemaRoutes = require('./routes/schema');
@@ -19,10 +21,12 @@ const dataRoutes = require('./routes/data');
 const uploadRoutes = require('./routes/upload');
 const connectionsRoutes = require('./routes/connections');
 const lookupRoutes = require('./routes/lookup');
+console.log('Routes imported');
 
 const app = express();
 
 // Middleware
+console.log('Setting up middleware...');
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
@@ -31,6 +35,7 @@ app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 app.use(express.static(path.join(__dirname, '../frontend/dist')));
 
 // API Routes
+console.log('Mounting routes...');
 app.use('/api/auth', authRoutes);
 app.use('/api/databases', databaseRoutes);
 app.use('/api/schema', schemaRoutes);
@@ -38,6 +43,7 @@ app.use('/api/data', dataRoutes);
 app.use('/api/upload', uploadRoutes);
 app.use('/api/connections', connectionsRoutes);
 app.use('/api/lookup', lookupRoutes);
+console.log('Routes mounted');
 
 // Health check
 app.get('/api/health', (req, res) => {

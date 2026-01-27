@@ -42,7 +42,8 @@ router.get('/stats', auth, async (req, res) => {
                     const dbPool = connectionId ? pool : await getDbConnection(dbName);
 
                     // Get all tables in the database
-                    const [tables] = await dbPool.execute('SHOW TABLES');
+                    // Use SHOW TABLES FROM `dbName` to ensure it works even if pool has no DB selected
+                    const [tables] = await dbPool.execute(`SHOW TABLES FROM \`${dbName}\``);
                     if (tables.length === 0) {
                         return {
                             database: dbName,

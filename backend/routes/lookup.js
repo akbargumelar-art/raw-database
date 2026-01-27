@@ -121,7 +121,7 @@ router.post('/process', auth, upload.single('file'), async (req, res) => {
                 });
             } else {
                 returnCols.forEach(col => {
-                    row[col] = ''; // Or null? Empty string is better for Excel
+                    row[col] = 'Null'; // User requested "Null" string
                 });
             }
             return row;

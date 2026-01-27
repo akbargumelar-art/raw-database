@@ -5,7 +5,7 @@ const path = require('path');
 const fs = require('fs');
 const xlsx = require('xlsx');
 const csv = require('csv-parser');
-const { getDbConnection } = require('../config/db');
+const { getDbConnection, getConnectionPool } = require('../config/db');
 const { auth } = require('../middleware/auth');
 const { checkDbPermission } = require('../middleware/permissions');
 const { formatToMysql, isDateColumn } = require('../utils/dateFormatter');
@@ -89,7 +89,13 @@ router.post('/:database/:table', auth, checkDbPermission, upload.single('file'),
         const ext = path.extname(req.file.originalname).toLowerCase();
 
         // Get table structure for date columns
-        const pool = await getDbConnection(database);
+        const { connectionId } = req.body;
+        let pool;
+        if (connectionId) {
+            pool = await getConnectionPool(parseInt(connectionId), database);
+        } else {
+            pool = await getDbConnection(database);
+        }
         const [columns] = await pool.execute(`DESCRIBE \`${table}\``);
         const dateColumns = columns
             .filter(c => ['date', 'datetime', 'timestamp'].some(t => c.Type.toLowerCase().includes(t)))

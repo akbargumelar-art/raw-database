@@ -126,7 +126,8 @@ const DataExplorer = () => {
                 dateFrom: dateFrom || undefined,
                 dateTo: dateTo || undefined,
                 sortBy: sortBy || undefined,
-                sortOrder
+                sortOrder,
+                connectionId: selectedConnection?.id
             });
             setData(res.data.data);
             setColumns(res.data.columns);
@@ -159,7 +160,8 @@ const DataExplorer = () => {
                 searchColumn: searchColumn || undefined,
                 dateColumn: dateColumn || undefined,
                 dateFrom: dateFrom || undefined,
-                dateTo: dateTo || undefined
+                dateTo: dateTo || undefined,
+                connectionId: selectedConnection?.id
             });
             const url = window.URL.createObjectURL(new Blob([res.data]));
             const a = document.createElement('a');
@@ -183,7 +185,7 @@ const DataExplorer = () => {
             await dataAPI.update(selectedDb, selectedTable, editData[primaryKey], {
                 primaryKey,
                 ...editData
-            });
+            }, selectedConnection?.id);
             toast.success('Row updated');
             setEditingRow(null);
             loadData();
@@ -196,7 +198,7 @@ const DataExplorer = () => {
         const primaryKey = columns.find(c => c.key === 'PRI')?.name || 'id';
         if (!confirm('Delete this row?')) return;
         try {
-            await dataAPI.delete(selectedDb, selectedTable, row[primaryKey], primaryKey);
+            await dataAPI.delete(selectedDb, selectedTable, row[primaryKey], primaryKey, selectedConnection?.id);
             toast.success('Row deleted');
             loadData();
         } catch (error) {
@@ -208,7 +210,7 @@ const DataExplorer = () => {
         if (!sqlQuery.trim()) return;
         setSqlLoading(true);
         try {
-            const res = await dataAPI.query(selectedDb, sqlQuery, true);
+            const res = await dataAPI.query(selectedDb, sqlQuery, true, selectedConnection?.id);
             setSqlResult(res.data);
             toast.success(res.data.type === 'select' ? `${res.data.rowCount} rows` : `${res.data.affectedRows} rows affected`);
         } catch (error) {

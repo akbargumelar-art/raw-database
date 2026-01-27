@@ -153,7 +153,8 @@ const UploadData = () => {
                 (progressEvent) => {
                     const progress = Math.round((progressEvent.loaded * 100) / progressEvent.total);
                     setUploadProgress(progress);
-                }
+                },
+                selectedConnection?.id
             );
 
             setTaskId(res.data.taskId);

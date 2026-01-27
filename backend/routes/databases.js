@@ -151,7 +151,7 @@ router.get('/:database/tables', auth, async (req, res) => {
         // Get the appropriate connection pool
         let pool;
         if (connectionId) {
-            pool = await getConnectionPool(parseInt(connectionId));
+            pool = await getConnectionPool(parseInt(connectionId), database);
         } else {
             pool = await getDbConnection(database);
         }
@@ -176,7 +176,7 @@ router.get('/:database/:table', auth, async (req, res) => {
         // Get the appropriate connection pool
         let pool;
         if (connectionId) {
-            pool = await getConnectionPool(parseInt(connectionId));
+            pool = await getConnectionPool(parseInt(connectionId), database);
         } else {
             pool = await getDbConnection(database);
         }
@@ -206,7 +206,7 @@ router.get('/:database/:table/structure', auth, async (req, res) => {
         // Get the appropriate connection pool
         let pool;
         if (connectionId) {
-            pool = await getConnectionPool(parseInt(connectionId));
+            pool = await getConnectionPool(parseInt(connectionId), database);
         } else {
             pool = await getDbConnection(database);
         }

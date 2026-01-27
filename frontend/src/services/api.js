@@ -77,26 +77,27 @@ export const schemaAPI = {
 export const dataAPI = {
     get: (database, table, params) =>
         api.get(`/data/${database}/${table}`, { params }),
-    insert: (database, table, data) =>
-        api.post(`/data/${database}/${table}`, data),
-    update: (database, table, id, data) =>
-        api.put(`/data/${database}/${table}/${id}`, data),
-    delete: (database, table, id, primaryKey) =>
-        api.delete(`/data/${database}/${table}/${id}`, { params: { primaryKey } }),
+    insert: (database, table, data, connectionId) =>
+        api.post(`/data/${database}/${table}`, data, { params: { connectionId } }),
+    update: (database, table, id, data, connectionId) =>
+        api.put(`/data/${database}/${table}/${id}`, data, { params: { connectionId } }),
+    delete: (database, table, id, primaryKey, connectionId) =>
+        api.delete(`/data/${database}/${table}/${id}`, { params: { primaryKey, connectionId } }),
     export: (database, table, params) =>
         api.get(`/data/${database}/${table}/export`, { params, responseType: 'blob' }),
-    query: (database, sql, confirmed = false) =>
-        api.post(`/data/${database}/query`, { sql, confirmed })
+    query: (database, sql, confirmed = false, connectionId) =>
+        api.post(`/data/${database}/query`, { sql, confirmed }, { params: { connectionId } })
 };
 
 // Upload API
 export const uploadAPI = {
-    upload: (database, table, file, batchSize = 5000, duplicateMode = 'skip', duplicateCheckFields = [], onProgress) => {
+    upload: (database, table, file, batchSize = 5000, duplicateMode = 'skip', duplicateCheckFields = [], onProgress, connectionId) => {
         const formData = new FormData();
         formData.append('file', file);
         formData.append('batchSize', batchSize);
         formData.append('duplicateMode', duplicateMode);
         formData.append('duplicateCheckFields', JSON.stringify(duplicateCheckFields));
+        if (connectionId) formData.append('connectionId', connectionId);
         return api.post(`/upload/${database}/${table}`, formData, {
             headers: { 'Content-Type': 'multipart/form-data' },
             onUploadProgress: onProgress

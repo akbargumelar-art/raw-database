@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const xlsx = require('xlsx');
-const { getDbConnection } = require('../config/db');
+const { getDbConnection, getConnectionPool } = require('../config/db');
 const { auth, adminOnly } = require('../middleware/auth');
 const { checkDbPermission } = require('../middleware/permissions');
 
@@ -28,7 +28,13 @@ router.post('/:database/query', auth, adminOnly, async (req, res) => {
             });
         }
 
-        const pool = await getDbConnection(database);
+        const { connectionId } = req.query;
+        let pool;
+        if (connectionId) {
+            pool = await getConnectionPool(parseInt(connectionId), database);
+        } else {
+            pool = await getDbConnection(database);
+        }
         const [result] = await pool.execute(sql);
 
         // Determine result type
@@ -49,7 +55,13 @@ router.get('/:database/:table/export', auth, checkDbPermission, async (req, res)
         const { database, table } = req.params;
         const { search, searchColumn, dateColumn, dateFrom, dateTo } = req.query;
 
-        const pool = await getDbConnection(database);
+        const { connectionId } = req.query;
+        let pool;
+        if (connectionId) {
+            pool = await getConnectionPool(parseInt(connectionId), database);
+        } else {
+            pool = await getDbConnection(database);
+        }
 
         // Build WHERE clause
         let whereClause = '';
@@ -104,7 +116,13 @@ router.get('/:database/:table', auth, checkDbPermission, async (req, res) => {
             dateTo
         } = req.query;
 
-        const pool = await getDbConnection(database);
+        const pool = await (async () => {
+            const { connectionId } = req.query;
+            if (connectionId) {
+                return await getConnectionPool(parseInt(connectionId), database);
+            }
+            return await getDbConnection(database);
+        })();
         const offset = (parseInt(page) - 1) * parseInt(limit);
 
         // Build WHERE clause
@@ -190,7 +208,13 @@ router.post('/:database/:table', auth, checkDbPermission, async (req, res) => {
         const { database, table } = req.params;
         const data = req.body;
 
-        const pool = await getDbConnection(database);
+        const { connectionId } = req.query;
+        let pool;
+        if (connectionId) {
+            pool = await getConnectionPool(parseInt(connectionId), database);
+        } else {
+            pool = await getDbConnection(database);
+        }
         const columns = Object.keys(data);
         const values = Object.values(data);
         const placeholders = columns.map(() => '?').join(', ');
@@ -211,7 +235,13 @@ router.put('/:database/:table/:id', auth, checkDbPermission, async (req, res) =>
         const { database, table, id } = req.params;
         const { primaryKey = 'id', ...data } = req.body;
 
-        const pool = await getDbConnection(database);
+        const { connectionId } = req.query;
+        let pool;
+        if (connectionId) {
+            pool = await getConnectionPool(parseInt(connectionId), database);
+        } else {
+            pool = await getDbConnection(database);
+        }
         const updates = Object.keys(data).map(k => `\`${k}\` = ?`).join(', ');
         const values = [...Object.values(data), id];
 
@@ -231,7 +261,13 @@ router.delete('/:database/:table/:id', auth, checkDbPermission, async (req, res)
         const { database, table, id } = req.params;
         const { primaryKey = 'id' } = req.query;
 
-        const pool = await getDbConnection(database);
+        const { connectionId } = req.query;
+        let pool;
+        if (connectionId) {
+            pool = await getConnectionPool(parseInt(connectionId), database);
+        } else {
+            pool = await getDbConnection(database);
+        }
         await pool.execute(`DELETE FROM \`${table}\` WHERE \`${primaryKey}\` = ?`, [id]);
 
         res.json({ message: 'Row deleted successfully.' });

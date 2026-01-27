@@ -4,9 +4,9 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const xlsx = require('xlsx');
-const { getConnectionPool } = require('../config/db'); // Use shared connection pool logic
+const { getConnectionPool, getInternalPool } = require('../config/db'); // Use shared connection pool logic
 const { auth } = require('../middleware/auth');
-const { verifyDatabaseAccess, getInternalPool } = require('../middleware/permissions'); // Need getInternalPool for permission check manually if not using middleware
+const { verifyDatabaseAccess } = require('../middleware/permissions');
 
 // Configure multer
 const upload = multer({

@@ -12,6 +12,7 @@ const schemaRoutes = require('./routes/schema');
 const dataRoutes = require('./routes/data');
 const uploadRoutes = require('./routes/upload');
 const connectionsRoutes = require('./routes/connections');
+const lookupRoutes = require('./routes/lookup');
 
 const app = express();
 
@@ -30,6 +31,7 @@ app.use('/api/schema', schemaRoutes);
 app.use('/api/data', dataRoutes);
 app.use('/api/upload', uploadRoutes);
 app.use('/api/connections', connectionsRoutes);
+app.use('/api/lookup', lookupRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {

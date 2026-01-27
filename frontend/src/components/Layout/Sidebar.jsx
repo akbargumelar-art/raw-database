@@ -13,7 +13,8 @@ import {
     ChevronRight,
     Menu,
     X,
-    Server
+    Server,
+    FileSpreadsheet
 } from 'lucide-react';
 
 const navItems = [
@@ -22,6 +23,7 @@ const navItems = [
     { path: '/designer', icon: Table2, label: 'Schema Designer' },
     { path: '/explorer', icon: Database, label: 'Data Explorer' },
     { path: '/upload', icon: Upload, label: 'Upload Data' },
+    { path: '/lookup', icon: FileSpreadsheet, label: 'Batch Lookup' },
     { path: '/servers', icon: Server, label: 'Database Servers' },
 ];
 

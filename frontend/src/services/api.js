@@ -106,4 +106,13 @@ export const uploadAPI = {
     getProgress: (taskId) => api.get(`/upload/progress/${taskId}`)
 };
 
+// Lookup API
+export const lookupAPI = {
+    process: (formData, onProgress) => api.post('/lookup/process', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        responseType: 'blob', // Important for download
+        onUploadProgress: onProgress
+    })
+};
+
 export default api;

@@ -17,6 +17,7 @@ import DataExplorer from './pages/DataExplorer';
 import UploadData from './pages/UploadData';
 import UserManagement from './pages/UserManagement';
 import DatabaseServers from './pages/DatabaseServers';
+import BatchLookup from './pages/BatchLookup';
 
 // Protected Route component
 const ProtectedRoute = ({ children, adminOnly = false }) => {
@@ -71,6 +72,7 @@ const AppRoutes = () => {
                         <UserManagement />
                     </ProtectedRoute>
                 } />
+                <Route path="lookup" element={<BatchLookup />} />
                 <Route path="servers" element={<DatabaseServers />} />
             </Route>
 

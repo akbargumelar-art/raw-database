@@ -9,8 +9,28 @@ console.log('Server starting... Environment check:', {
     DB_HOST: process.env.DB_HOST
 });
 
-const { rootPool, getInternalPool } = require('./config/db');
-console.log('DB Config loaded');
+process.on('uncaughtException', (err) => {
+    console.error('CRITICAL STARTUP ERROR:', err);
+    console.error('Stack:', err.stack);
+    process.exit(1);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('UNHANDLED PROMISE REJECTION:', reason);
+    process.exit(1);
+});
+
+console.log('Attempting to load DB config...');
+let rootPool, getInternalPool;
+try {
+    const dbConfig = require('./config/db');
+    rootPool = dbConfig.rootPool;
+    getInternalPool = dbConfig.getInternalPool;
+    console.log('DB Config loaded successfully');
+} catch (error) {
+    console.error('FATAL ERROR LOADING DB CONFIG:', error);
+    process.exit(1);
+}
 
 // Import routes
 console.log('Importing routes...');

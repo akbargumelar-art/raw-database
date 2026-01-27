@@ -18,7 +18,13 @@ export const ConnectionProvider = ({ children }) => {
 
     // Load connections on mount
     useEffect(() => {
-        loadConnections();
+        // Only load if user is authenticated (token exists)
+        const token = localStorage.getItem('token');
+        if (token) {
+            loadConnections();
+        } else {
+            setLoading(false);
+        }
     }, []);
 
     const loadConnections = async () => {
@@ -50,7 +56,10 @@ export const ConnectionProvider = ({ children }) => {
                 localStorage.setItem('selectedConnectionId', connList[0].id.toString());
             }
         } catch (error) {
-            console.error('Failed to load connections:', error);
+            // Don't log errors on login page (401 is expected)
+            if (error.response?.status !== 401) {
+                console.error('Failed to load connections:', error);
+            }
         } finally {
             setLoading(false);
         }

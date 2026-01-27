@@ -337,7 +337,7 @@ router.post('/:database/:table/indexes', auth, async (req, res) => {
         if (type === 'UNIQUE') sql += 'UNIQUE ';
         if (type === 'FULLTEXT') sql += 'FULLTEXT ';
         sql += `INDEX \`${indexName}\` ON \`${table}\` (`;
-        sql += columns.map(c => \`\`${c}\`\`).join(', '); // Simple column list for now
+        sql += columns.map(c => `\`${c}\``).join(', '); // Simple column list for now
         sql += ')';
 
         await pool.query(sql);

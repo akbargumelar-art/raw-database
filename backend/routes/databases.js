@@ -6,14 +6,25 @@ const { auth, adminOnly } = require('../middleware/auth');
 // Get dashboard stats (last update info for each database)
 router.get('/stats', auth, async (req, res) => {
     try {
-        const [databases] = await getInternalPool().execute('SHOW DATABASES');
+        const { connectionId } = req.query;
+        const { getConnectionPool } = require('../config/db');
+
+        // Get the appropriate connection pool
+        let pool;
+        if (connectionId) {
+            pool = await getConnectionPool(parseInt(connectionId));
+        } else {
+            pool = getInternalPool();
+        }
+
+        const [databases] = await pool.execute('SHOW DATABASES');
         const dbNames = databases
             .map(db => db.Database)
             .filter(name => !['information_schema', 'mysql', 'performance_schema', 'sys'].includes(name));
 
-        // For operators, filter by allowed databases
+        // For operators, filter by allowed databases (only for internal connection)
         let allowedDbs = dbNames;
-        if (req.user.role !== 'admin') {
+        if (req.user.role !== 'admin' && !connectionId) {
             const [users] = await getInternalPool().execute(
                 'SELECT allowed_databases FROM users WHERE id = ?',
                 [req.user.id]
@@ -25,10 +36,11 @@ router.get('/stats', auth, async (req, res) => {
         const dbStats = await Promise.all(
             allowedDbs.map(async (dbName) => {
                 try {
-                    const pool = await getDbConnection(dbName);
+                    // Use the selected connection's pool
+                    const dbPool = connectionId ? pool : await getDbConnection(dbName);
 
                     // Get all tables in the database
-                    const [tables] = await pool.execute('SHOW TABLES');
+                    const [tables] = await dbPool.execute('SHOW TABLES');
                     if (tables.length === 0) {
                         return {
                             database: dbName,
@@ -39,7 +51,7 @@ router.get('/stats', auth, async (req, res) => {
                     }
 
                     // Query information_schema for the most recent update time
-                    const [updateInfo] = await pool.execute(`
+                    const [updateInfo] = await dbPool.execute(`
                         SELECT 
                             TABLE_NAME,
                             UPDATE_TIME,
@@ -121,9 +133,11 @@ router.get('/', auth, async (req, res) => {
 router.get('/:database/tables', auth, async (req, res) => {
     try {
         const { database } = req.params;
+        const { connectionId } = req.query;
+        const { getConnectionPool } = require('../config/db');
 
-        // Check permission for operators
-        if (req.user.role !== 'admin') {
+        // Check permission for operators (only for internal connection)
+        if (req.user.role !== 'admin' && !connectionId) {
             const [users] = await getInternalPool().execute(
                 'SELECT allowed_databases FROM users WHERE id = ?',
                 [req.user.id]
@@ -134,7 +148,14 @@ router.get('/:database/tables', auth, async (req, res) => {
             }
         }
 
-        const pool = await getDbConnection(database);
+        // Get the appropriate connection pool
+        let pool;
+        if (connectionId) {
+            pool = await getConnectionPool(parseInt(connectionId));
+        } else {
+            pool = await getDbConnection(database);
+        }
+
         const [tables] = await pool.execute('SHOW TABLES');
         const tableNames = tables.map(t => Object.values(t)[0]);
 

@@ -170,8 +170,17 @@ router.get('/:database/tables', auth, async (req, res) => {
 router.get('/:database/:table', auth, async (req, res) => {
     try {
         const { database, table } = req.params;
+        const { connectionId } = req.query;
+        const { getConnectionPool } = require('../config/db');
 
-        const pool = await getDbConnection(database);
+        // Get the appropriate connection pool
+        let pool;
+        if (connectionId) {
+            pool = await getConnectionPool(parseInt(connectionId));
+        } else {
+            pool = await getDbConnection(database);
+        }
+
         const [columns] = await pool.execute(`DESCRIBE \`${table}\``);
 
         res.json({
@@ -191,8 +200,17 @@ router.get('/:database/:table', auth, async (req, res) => {
 router.get('/:database/:table/structure', auth, async (req, res) => {
     try {
         const { database, table } = req.params;
+        const { connectionId } = req.query;
+        const { getConnectionPool } = require('../config/db');
 
-        const pool = await getDbConnection(database);
+        // Get the appropriate connection pool
+        let pool;
+        if (connectionId) {
+            pool = await getConnectionPool(parseInt(connectionId));
+        } else {
+            pool = await getDbConnection(database);
+        }
+
         const [columns] = await pool.execute(`DESCRIBE \`${table}\``);
         const [createTable] = await pool.execute(`SHOW CREATE TABLE \`${table}\``);
 

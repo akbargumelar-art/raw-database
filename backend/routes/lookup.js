@@ -191,4 +191,98 @@ router.get('/download/:fileKey', auth, (req, res) => {
     }
 });
 
+// POST /process-custom (Free Query)
+router.post('/process-custom', auth, upload.single('file'), async (req, res) => {
+    let filePath = null;
+    try {
+        if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+        filePath = req.file.path;
+
+        const { connectionId, database, sql } = req.body;
+
+        if (!connectionId || !database || !sql) {
+            fs.unlinkSync(filePath);
+            return res.status(400).json({ error: 'Missing required parameters' });
+        }
+
+        // 1. Permission Check
+        if (!(await checkAccess(req.user.id, req.user.role, database, connectionId))) {
+            fs.unlinkSync(filePath);
+            return res.status(403).json({ error: 'Access denied to this database' });
+        }
+
+        // 2. Read Excel
+        const workbook = xlsx.readFile(filePath);
+        const sheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[sheetName];
+        let data = xlsx.utils.sheet_to_json(worksheet, { defval: '' });
+
+        if (data.length === 0) {
+            fs.unlinkSync(filePath);
+            return res.status(400).json({ error: 'File is empty' });
+        }
+
+        const pool = await getConnectionPool(parseInt(connectionId), database);
+
+        // 3. Iterative Execution (sequential)
+        const enrichedData = [];
+        const paramRegex = /\{\{([^}]+)\}\}/g;
+
+        for (const row of data) {
+            let currentSql = sql;
+
+            // Replace parameters
+            currentSql = currentSql.replace(paramRegex, (match, p1) => {
+                const val = row[p1.trim()];
+                if (val === undefined) return 'NULL';
+                return pool.escape(val);
+            });
+
+            let rowResult = { ...row };
+
+            try {
+                const [rows] = await pool.query(currentSql);
+                if (rows.length > 0) {
+                    // Merge FIRST result
+                    const match = rows[0];
+                    Object.keys(match).forEach(key => {
+                        rowResult[key] = match[key];
+                    });
+                }
+            } catch (err) {
+                rowResult['_error'] = err.message;
+            }
+            enrichedData.push(rowResult);
+        }
+
+        // 4. Save Temp File
+        const newWs = xlsx.utils.json_to_sheet(enrichedData);
+        const newWb = xlsx.utils.book_new();
+        xlsx.utils.book_append_sheet(newWb, newWs, "Results");
+
+        const tempDir = path.join(__dirname, '../uploads/temp');
+        if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
+
+        const fileKey = `lookup_result_${Date.now()}.xlsx`;
+        const tempPath = path.join(tempDir, fileKey);
+
+        xlsx.writeFile(newWb, tempPath);
+
+        // 5. Send Preview
+        const preview = enrichedData.slice(0, 50);
+        res.json({
+            preview,
+            totalRows: enrichedData.length,
+            fileKey
+        });
+
+        fs.unlinkSync(filePath);
+
+    } catch (error) {
+        console.error('Custom lookup error:', error);
+        if (filePath && fs.existsSync(filePath)) fs.unlinkSync(filePath);
+        res.status(500).json({ error: error.message || 'Processing failed' });
+    }
+});
+
 module.exports = router;

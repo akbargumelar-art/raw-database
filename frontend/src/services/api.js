@@ -112,6 +112,10 @@ export const lookupAPI = {
         headers: { 'Content-Type': 'multipart/form-data' },
         onUploadProgress: onProgress
     }),
+    processCustom: (formData, onProgress) => api.post('/lookup/process-custom', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        onUploadProgress: onProgress
+    }),
     download: (fileKey) => api.get(`/lookup/download/${fileKey}`, {
         responseType: 'blob'
     })

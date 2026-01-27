@@ -12,12 +12,18 @@ import {
     Download,
     CheckCircle,
     Upload,
-    Eye
+    Eye,
+    Code,
+    Settings2,
+    Info
 } from 'lucide-react';
 
 const BatchLookup = () => {
     const toast = useToast();
     const { selectedConnection } = useConnection();
+
+    // Mode: 'simple' | 'custom'
+    const [mode, setMode] = useState('simple');
 
     // Steps
     const [step, setStep] = useState(1); // 1: Upload, 2: Config, 3: Preview
@@ -27,16 +33,18 @@ const BatchLookup = () => {
     const [analyzing, setAnalyzing] = useState(false);
     const [excelColumns, setExcelColumns] = useState([]);
 
-    // Config
+    // Config: Simple
     const [databases, setDatabases] = useState([]);
     const [tables, setTables] = useState([]);
     const [selectedDb, setSelectedDb] = useState('');
     const [selectedTable, setSelectedTable] = useState('');
     const [dbColumns, setDbColumns] = useState([]);
-
     const [sourceCol, setSourceCol] = useState('');
     const [targetCol, setTargetCol] = useState('');
     const [returnCols, setReturnCols] = useState([]);
+
+    // Config: Custom
+    const [customSql, setCustomSql] = useState('SELECT * FROM my_table WHERE id = :id'); // Default template
 
     // Processing & Preview
     const [processing, setProcessing] = useState(false);
@@ -51,16 +59,16 @@ const BatchLookup = () => {
     }, [selectedConnection]);
 
     useEffect(() => {
-        if (selectedDb && selectedConnection) {
+        if (selectedDb && selectedConnection && mode === 'simple') {
             loadTables(selectedDb);
         }
-    }, [selectedDb, selectedConnection]);
+    }, [selectedDb, selectedConnection, mode]);
 
     useEffect(() => {
-        if (selectedDb && selectedTable && selectedConnection) {
+        if (selectedDb && selectedTable && selectedConnection && mode === 'simple') {
             loadStructure();
         }
-    }, [selectedDb, selectedTable, selectedConnection]);
+    }, [selectedDb, selectedTable, selectedConnection, mode]);
 
     const loadDatabases = async () => {
         try {
@@ -115,12 +123,18 @@ const BatchLookup = () => {
             formData.append('file', file);
             formData.append('connectionId', selectedConnection.id);
             formData.append('database', selectedDb);
-            formData.append('table', selectedTable);
-            formData.append('sourceColumn', sourceCol);
-            formData.append('targetColumn', targetCol);
-            formData.append('returnColumns', JSON.stringify(returnCols));
 
-            const response = await lookupAPI.process(formData);
+            let response;
+            if (mode === 'simple') {
+                formData.append('table', selectedTable);
+                formData.append('sourceColumn', sourceCol);
+                formData.append('targetColumn', targetCol);
+                formData.append('returnColumns', JSON.stringify(returnCols));
+                response = await lookupAPI.process(formData);
+            } else {
+                formData.append('sql', customSql);
+                response = await lookupAPI.processCustom(formData);
+            }
 
             // Set Preview Data
             setPreviewData(response.data.preview);
@@ -163,6 +177,10 @@ const BatchLookup = () => {
         }
     };
 
+    const insertParam = (colName) => {
+        setCustomSql(prev => `${prev} {{${colName}}}`);
+    };
+
     return (
         <div className="space-y-6 animate-fade-in max-w-6xl mx-auto">
             <div className="flex flex-col md:flex-row justify-between gap-4">
@@ -176,7 +194,7 @@ const BatchLookup = () => {
             </div>
 
             {/* Stepper */}
-            <div className="flex items-center gap-4 mb-8">
+            <div className="flex items-center gap-4 mb-4">
                 {['Upload', 'Configure', 'Preview'].map((label, idx) => (
                     <div key={label} className="flex items-center gap-4">
                         <div className={`flex items-center gap-2 ${step >= idx + 1 ? 'text-brand-400' : 'text-gray-600'}`}>
@@ -217,36 +235,80 @@ const BatchLookup = () => {
 
             {/* Step 2: Configure */}
             {step === 2 && (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    {/* Source Config */}
-                    <div className="card p-6 space-y-4">
-                        <h3 className="font-semibold text-white flex items-center gap-2">
-                            <FileSpreadsheet className="w-5 h-5 text-green-400" /> Source File
-                        </h3>
-                        <div className="p-3 bg-gray-800/50 rounded text-sm text-gray-300">
-                            {file?.name}
-                        </div>
-
-                        <div>
-                            <label className="block text-sm font-medium text-gray-400 mb-2">Lookup Column (Excel)</label>
-                            <select
-                                value={sourceCol}
-                                onChange={e => setSourceCol(e.target.value)}
-                                className="select-dark w-full"
-                            >
-                                <option value="">Select column...</option>
-                                {excelColumns.map(c => <option key={c} value={c}>{c}</option>)}
-                            </select>
-                        </div>
+                <div className="space-y-6">
+                    {/* Tabs */}
+                    <div className="flex bg-gray-900 rounded-lg p-1 w-fit">
+                        <button
+                            onClick={() => setMode('simple')}
+                            className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${mode === 'simple' ? 'bg-brand-600 text-white shadow' : 'text-gray-400 hover:text-white'
+                                }`}
+                        >
+                            <div className="flex items-center gap-2">
+                                <Settings2 className="w-4 h-4" />
+                                Simple Lookup
+                            </div>
+                        </button>
+                        <button
+                            onClick={() => setMode('custom')}
+                            className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${mode === 'custom' ? 'bg-brand-600 text-white shadow' : 'text-gray-400 hover:text-white'
+                                }`}
+                        >
+                            <div className="flex items-center gap-2">
+                                <Code className="w-4 h-4" />
+                                Free Query Mode
+                            </div>
+                        </button>
                     </div>
 
-                    {/* Target Config */}
-                    <div className="card p-6 space-y-4">
-                        <h3 className="font-semibold text-white flex items-center gap-2">
-                            <Database className="w-5 h-5 text-brand-400" /> Target Database
-                        </h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        {/* Source Info (Common) */}
+                        <div className="card p-6 space-y-4 h-fit">
+                            <h3 className="font-semibold text-white flex items-center gap-2">
+                                <FileSpreadsheet className="w-5 h-5 text-green-400" /> Source File
+                            </h3>
+                            <div className="p-3 bg-gray-800/50 rounded text-sm text-gray-300">
+                                {file?.name}
+                            </div>
 
-                        <div className="grid grid-cols-2 gap-4">
+                            {mode === 'simple' && (
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-400 mb-2">Lookup Column (Excel)</label>
+                                    <select
+                                        value={sourceCol}
+                                        onChange={e => setSourceCol(e.target.value)}
+                                        className="select-dark w-full"
+                                    >
+                                        <option value="">Select column...</option>
+                                        {excelColumns.map(c => <option key={c} value={c}>{c}</option>)}
+                                    </select>
+                                </div>
+                            )}
+
+                            {mode === 'custom' && (
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-400 mb-2">Available Columns</label>
+                                    <p className="text-xs text-gray-500 mb-2">Click to insert parameter</p>
+                                    <div className="flex flex-wrap gap-2">
+                                        {excelColumns.map(c => (
+                                            <button
+                                                key={c}
+                                                onClick={() => insertParam(c)}
+                                                className="px-2 py-1 bg-gray-800 hover:bg-gray-700 text-xs text-brand-400 rounded border border-gray-700 transition-colors"
+                                            >
+                                                {`{{${c}}}`}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Configuration Form */}
+                        <div className="card p-6 space-y-4">
+                            <h3 className="font-semibold text-white flex items-center gap-2">
+                                <Database className="w-5 h-5 text-brand-400" /> Target Database
+                            </h3>
+
                             <div>
                                 <label className="block text-sm font-medium text-gray-400 mb-2">Database</label>
                                 <select
@@ -258,67 +320,94 @@ const BatchLookup = () => {
                                     {databases.map(d => <option key={d} value={d}>{d}</option>)}
                                 </select>
                             </div>
-                            <div>
-                                <label className="block text-sm font-medium text-gray-400 mb-2">Table</label>
-                                <select
-                                    value={selectedTable}
-                                    onChange={e => setSelectedTable(e.target.value)}
-                                    className="select-dark w-full"
-                                    disabled={!selectedDb}
-                                >
-                                    <option value="">Select...</option>
-                                    {tables.map(t => <option key={t} value={t}>{t}</option>)}
-                                </select>
-                            </div>
+
+                            {mode === 'simple' && (
+                                <>
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-400 mb-2">Table</label>
+                                        <select
+                                            value={selectedTable}
+                                            onChange={e => setSelectedTable(e.target.value)}
+                                            className="select-dark w-full"
+                                            disabled={!selectedDb}
+                                        >
+                                            <option value="">Select...</option>
+                                            {tables.map(t => <option key={t} value={t}>{t}</option>)}
+                                        </select>
+                                    </div>
+
+                                    {selectedTable && (
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-400 mb-2">Match Column (Database)</label>
+                                            <select
+                                                value={targetCol}
+                                                onChange={e => setTargetCol(e.target.value)}
+                                                className="select-dark w-full"
+                                            >
+                                                <option value="">Select column...</option>
+                                                {dbColumns.map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
+                                            </select>
+                                        </div>
+                                    )}
+                                </>
+                            )}
+
+                            {mode === 'custom' && (
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-400 mb-2">SQL Query</label>
+                                    <div className="bg-gray-800/30 p-2 rounded mb-2 text-xs text-gray-500 flex gap-2">
+                                        <Info className="w-4 h-4 flex-shrink-0" />
+                                        <p>Use <code>{`{{ColumnName}}`}</code> to insert values from the uploaded Excel file. The query runs once for each row in the file.</p>
+                                    </div>
+                                    <textarea
+                                        value={customSql}
+                                        onChange={e => setCustomSql(e.target.value)}
+                                        className="w-full bg-gray-950 text-gray-200 border border-gray-800 rounded-lg p-4 font-mono text-sm focus:border-brand-500 focus:ring-1 focus:ring-brand-500 outline-none"
+                                        rows={8}
+                                        placeholder="SELECT * FROM table WHERE col = {{ExcelCol}}"
+                                    />
+                                </div>
+                            )}
+
                         </div>
 
-                        {selectedTable && (
-                            <div>
-                                <label className="block text-sm font-medium text-gray-400 mb-2">Match Column (Database)</label>
-                                <select
-                                    value={targetCol}
-                                    onChange={e => setTargetCol(e.target.value)}
-                                    className="select-dark w-full"
-                                >
-                                    <option value="">Select column...</option>
-                                    {dbColumns.map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
-                                </select>
+                        {/* Return Columns (Simple Mode Only) */}
+                        {mode === 'simple' && selectedTable && (
+                            <div className="card p-6 md:col-span-2">
+                                <h3 className="font-semibold text-white mb-4">Columns to Append</h3>
+                                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 max-h-60 overflow-y-auto pr-2 custom-scrollbar">
+                                    {dbColumns.map(col => (
+                                        <label key={col.name} className="flex items-center gap-2 p-2 rounded bg-gray-800/30 hover:bg-gray-800 cursor-pointer transition-colors">
+                                            <input
+                                                type="checkbox"
+                                                checked={returnCols.includes(col.name)}
+                                                onChange={() => toggleReturnCol(col.name)}
+                                                className="rounded border-gray-600 text-brand-500 focus:ring-brand-500"
+                                            />
+                                            <span className="text-sm text-gray-300 truncate" title={col.name}>{col.name}</span>
+                                        </label>
+                                    ))}
+                                </div>
                             </div>
                         )}
-                    </div>
 
-                    {/* Return Columns */}
-                    {selectedTable && (
-                        <div className="card p-6 md:col-span-2">
-                            <h3 className="font-semibold text-white mb-4">Columns to Append</h3>
-                            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 max-h-60 overflow-y-auto pr-2 custom-scrollbar">
-                                {dbColumns.map(col => (
-                                    <label key={col.name} className="flex items-center gap-2 p-2 rounded bg-gray-800/30 hover:bg-gray-800 cursor-pointer transition-colors">
-                                        <input
-                                            type="checkbox"
-                                            checked={returnCols.includes(col.name)}
-                                            onChange={() => toggleReturnCol(col.name)}
-                                            className="rounded border-gray-600 text-brand-500 focus:ring-brand-500"
-                                        />
-                                        <span className="text-sm text-gray-300 truncate" title={col.name}>{col.name}</span>
-                                    </label>
-                                ))}
-                            </div>
+                        <div className="md:col-span-2 flex justify-end gap-4 pt-4">
+                            <button onClick={() => { setStep(1); setFile(null); }} className="btn-ghost">
+                                Cancel
+                            </button>
+                            <button
+                                onClick={handleProcess}
+                                disabled={
+                                    mode === 'simple'
+                                        ? (!sourceCol || !targetCol || returnCols.length === 0 || processing)
+                                        : (!selectedDb || !customSql || processing)
+                                }
+                                className="btn-primary px-8 py-3 text-lg flex items-center gap-2"
+                            >
+                                {processing ? <Loader2 className="w-5 h-5 animate-spin" /> : <Eye className="w-5 h-5" />}
+                                Preview Results
+                            </button>
                         </div>
-                    )}
-
-                    <div className="md:col-span-2 flex justify-end gap-4 pt-4">
-                        <button onClick={() => { setStep(1); setFile(null); }} className="btn-ghost">
-                            Cancel
-                        </button>
-                        <button
-                            onClick={handleProcess}
-                            disabled={!sourceCol || !targetCol || returnCols.length === 0 || processing}
-                            className="btn-primary px-8 py-3 text-lg flex items-center gap-2"
-                        >
-                            {processing ? <Loader2 className="w-5 h-5 animate-spin" /> : <Eye className="w-5 h-5" />}
-                            Preview Results
-                        </button>
                     </div>
                 </div>
             )}

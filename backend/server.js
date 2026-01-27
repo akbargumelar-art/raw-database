@@ -3,6 +3,12 @@ const cors = require('cors');
 const path = require('path');
 require('dotenv').config();
 
+console.log('Server starting... Environment check:', {
+    NODE_ENV: process.env.NODE_ENV,
+    PORT: process.env.PORT || 5000,
+    DB_HOST: process.env.DB_HOST
+});
+
 const { rootPool, getInternalPool } = require('./config/db');
 
 // Import routes

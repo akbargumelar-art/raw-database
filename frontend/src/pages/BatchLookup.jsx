@@ -11,7 +11,8 @@ import {
     ArrowRight,
     Download,
     CheckCircle,
-    Upload
+    Upload,
+    Eye
 } from 'lucide-react';
 
 const BatchLookup = () => {
@@ -19,7 +20,7 @@ const BatchLookup = () => {
     const { selectedConnection } = useConnection();
 
     // Steps
-    const [step, setStep] = useState(1); // 1: Upload, 2: Config, 3: Processing
+    const [step, setStep] = useState(1); // 1: Upload, 2: Config, 3: Preview
 
     // Data
     const [file, setFile] = useState(null);
@@ -33,28 +34,28 @@ const BatchLookup = () => {
     const [selectedTable, setSelectedTable] = useState('');
     const [dbColumns, setDbColumns] = useState([]);
 
-    const [sourceCol, setSourceCol] = useState(''); // Excel col
-    const [targetCol, setTargetCol] = useState(''); // DB col
-    const [returnCols, setReturnCols] = useState([]); // Array of strings
+    const [sourceCol, setSourceCol] = useState('');
+    const [targetCol, setTargetCol] = useState('');
+    const [returnCols, setReturnCols] = useState([]);
 
-    // Processing
+    // Processing & Preview
     const [processing, setProcessing] = useState(false);
+    const [previewData, setPreviewData] = useState([]);
+    const [totalRows, setTotalRows] = useState(0);
+    const [fileKey, setFileKey] = useState('');
 
-    // Initial load
     useEffect(() => {
         if (selectedConnection) {
             loadDatabases();
         }
     }, [selectedConnection]);
 
-    // Load tables when DB changes
     useEffect(() => {
         if (selectedDb && selectedConnection) {
             loadTables(selectedDb);
         }
     }, [selectedDb, selectedConnection]);
 
-    // Load columns when Table changes
     useEffect(() => {
         if (selectedDb && selectedTable && selectedConnection) {
             loadStructure();
@@ -66,7 +67,7 @@ const BatchLookup = () => {
             const res = await databaseAPI.list(selectedConnection.id);
             setDatabases(res.data);
         } catch (error) {
-            // Silent error or toast?
+            // handle error
         }
     };
 
@@ -95,9 +96,7 @@ const BatchLookup = () => {
         setFile(uploadedFile);
         setAnalyzing(true);
         try {
-            // Reuse schemaAPI.analyzeFile to get columns
             const res = await schemaAPI.analyzeFile(uploadedFile);
-            // res.data.columns is array of { name: '...', type: '...' }
             setExcelColumns(res.data.columns.map(c => c.name));
             setStep(2);
             toast.success(`Analyzed ${res.data.totalRows} rows`);
@@ -110,11 +109,6 @@ const BatchLookup = () => {
     };
 
     const handleProcess = async () => {
-        if (!file || !selectedDb || !selectedTable || !sourceCol || !targetCol || returnCols.length === 0) {
-            toast.error('Please complete all configuration');
-            return;
-        }
-
         setProcessing(true);
         try {
             const formData = new FormData();
@@ -128,7 +122,26 @@ const BatchLookup = () => {
 
             const response = await lookupAPI.process(formData);
 
-            // Download Blob
+            // Set Preview Data
+            setPreviewData(response.data.preview);
+            setTotalRows(response.data.totalRows);
+            setFileKey(response.data.fileKey);
+            setStep(3); // Go to preview
+
+            toast.success('Lookup complete! Review results below.');
+        } catch (error) {
+            console.error(error);
+            const msg = error.response?.data?.error || 'Processing failed';
+            toast.error(msg);
+        } finally {
+            setProcessing(false);
+        }
+    };
+
+    const handleDownload = async () => {
+        if (!fileKey) return;
+        try {
+            const response = await lookupAPI.download(fileKey);
             const url = window.URL.createObjectURL(new Blob([response.data]));
             const a = document.createElement('a');
             a.href = url;
@@ -136,18 +149,9 @@ const BatchLookup = () => {
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);
-
-            toast.success('Lookup complete! Downloading file...');
-            setStep(1);
-            setFile(null);
+            toast.success('File downloaded');
         } catch (error) {
-            console.error(error);
-            const msg = error.response?.data instanceof Blob
-                ? 'Processing failed' // Can't read JSON from Blob easily
-                : (error.response?.data?.error || 'Processing failed');
-            toast.error(msg);
-        } finally {
-            setProcessing(false);
+            toast.error('Download failed');
         }
     };
 
@@ -160,7 +164,7 @@ const BatchLookup = () => {
     };
 
     return (
-        <div className="space-y-6 animate-fade-in max-w-5xl mx-auto">
+        <div className="space-y-6 animate-fade-in max-w-6xl mx-auto">
             <div className="flex flex-col md:flex-row justify-between gap-4">
                 <div>
                     <h1 className="text-2xl font-bold text-white">Batch Lookup</h1>
@@ -173,20 +177,15 @@ const BatchLookup = () => {
 
             {/* Stepper */}
             <div className="flex items-center gap-4 mb-8">
-                <div className={`flex items-center gap-2 ${step >= 1 ? 'text-brand-400' : 'text-gray-600'}`}>
-                    <div className="w-8 h-8 rounded-full border-2 flex items-center justify-center font-bold border-current">1</div>
-                    <span>Upload</span>
-                </div>
-                <div className="h-0.5 w-12 bg-gray-800" />
-                <div className={`flex items-center gap-2 ${step >= 2 ? 'text-brand-400' : 'text-gray-600'}`}>
-                    <div className="w-8 h-8 rounded-full border-2 flex items-center justify-center font-bold border-current">2</div>
-                    <span>Configure</span>
-                </div>
-                <div className="h-0.5 w-12 bg-gray-800" />
-                <div className={`flex items-center gap-2 ${step >= 3 ? 'text-brand-400' : 'text-gray-600'}`}>
-                    <div className="w-8 h-8 rounded-full border-2 flex items-center justify-center font-bold border-current">3</div>
-                    <span>Process</span>
-                </div>
+                {['Upload', 'Configure', 'Preview'].map((label, idx) => (
+                    <div key={label} className="flex items-center gap-4">
+                        <div className={`flex items-center gap-2 ${step >= idx + 1 ? 'text-brand-400' : 'text-gray-600'}`}>
+                            <div className="w-8 h-8 rounded-full border-2 flex items-center justify-center font-bold border-current">{idx + 1}</div>
+                            <span>{label}</span>
+                        </div>
+                        {idx < 2 && <div className="h-0.5 w-12 bg-gray-800" />}
+                    </div>
+                ))}
             </div>
 
             {/* Step 1: Upload */}
@@ -317,9 +316,57 @@ const BatchLookup = () => {
                             disabled={!sourceCol || !targetCol || returnCols.length === 0 || processing}
                             className="btn-primary px-8 py-3 text-lg flex items-center gap-2"
                         >
-                            {processing ? <Loader2 className="w-5 h-5 animate-spin" /> : <Download className="w-5 h-5" />}
-                            Run Lookup
+                            {processing ? <Loader2 className="w-5 h-5 animate-spin" /> : <Eye className="w-5 h-5" />}
+                            Preview Results
                         </button>
+                    </div>
+                </div>
+            )}
+
+            {/* Step 3: Preview */}
+            {step === 3 && (
+                <div className="space-y-6">
+                    <div className="card p-6">
+                        <div className="flex items-center justify-between mb-6">
+                            <div>
+                                <h3 className="text-lg font-bold text-white">Preview Results</h3>
+                                <p className="text-gray-400 text-sm">Showing first 50 rows of {totalRows}</p>
+                            </div>
+                            <div className="flex gap-3">
+                                <button onClick={() => setStep(2)} className="btn-ghost">
+                                    Back to Config
+                                </button>
+                                <button onClick={handleDownload} className="btn-primary flex items-center gap-2">
+                                    <Download className="w-5 h-5" />
+                                    Download Full Result
+                                </button>
+                            </div>
+                        </div>
+
+                        <div className="overflow-x-auto border border-gray-800 rounded-lg">
+                            <table className="w-full text-sm text-left text-gray-400">
+                                <thead className="text-xs text-gray-200 uppercase bg-gray-800">
+                                    <tr>
+                                        {previewData.length > 0 && Object.keys(previewData[0]).map(key => (
+                                            <th key={key} className="px-6 py-3 whitespace-nowrap">
+                                                {key}
+                                            </th>
+                                        ))}
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {previewData.map((row, i) => (
+                                        <tr key={i} className="border-b border-gray-800 hover:bg-gray-800/50">
+                                            {Object.values(row).map((val, j) => (
+                                                <td key={j} className="px-6 py-4 whitespace-nowrap">
+                                                    {val === null ? 'NULL' : String(val)}
+                                                </td>
+                                            ))}
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
                 </div>
             )}

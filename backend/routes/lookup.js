@@ -133,12 +133,24 @@ router.post('/process', auth, upload.single('file'), async (req, res) => {
         xlsx.utils.book_append_sheet(newWb, newWs, "Results");
 
         // Write to buffer
-        const buffer = xlsx.write(newWb, { type: 'buffer', bookType: 'xlsx' });
+        // const buffer = xlsx.write(newWb, { type: 'buffer', bookType: 'xlsx' });
 
-        // 7. Send Response
-        res.setHeader('Content-Disposition', `attachment; filename=lookup_result_${Date.now()}.xlsx`);
-        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-        res.send(buffer);
+        // Save to temp file
+        const tempDir = path.join(__dirname, '../uploads/temp');
+        if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
+
+        const fileKey = `lookup_result_${Date.now()}.xlsx`;
+        const tempPath = path.join(tempDir, fileKey);
+
+        xlsx.writeFile(newWb, tempPath);
+
+        // 7. Send Response with Preview
+        const preview = enrichedData.slice(0, 50); // Top 50 rows
+        res.json({
+            preview,
+            totalRows: enrichedData.length,
+            fileKey
+        });
 
         // Cleanup
         fs.unlinkSync(filePath);
@@ -147,6 +159,35 @@ router.post('/process', auth, upload.single('file'), async (req, res) => {
         console.error('Lookup process error:', error);
         if (filePath && fs.existsSync(filePath)) fs.unlinkSync(filePath);
         res.status(500).json({ error: error.message || 'Processing failed' });
+    }
+});
+
+// GET /download/:fileKey
+router.get('/download/:fileKey', auth, (req, res) => {
+    try {
+        const { fileKey } = req.params;
+        // Basic validation to prevent path traversal
+        if (!fileKey.match(/^[a-zA-Z0-9_.-]+\.xlsx$/)) {
+            return res.status(400).json({ error: 'Invalid file key' });
+        }
+
+        const tempDir = path.join(__dirname, '../uploads/temp');
+        const filePath = path.join(tempDir, fileKey);
+
+        if (!fs.existsSync(filePath)) {
+            return res.status(404).json({ error: 'File not found or expired' });
+        }
+
+        res.download(filePath, fileKey, (err) => {
+            if (err) console.error('Download error:', err);
+            // Optional: Delete file after download? 
+            // Better to use a cron job, but for MVP we keep it or delete if we are sure user only downloads once.
+            // Let's keep it for now.
+        });
+
+    } catch (error) {
+        console.error('Download route error:', error);
+        res.status(500).json({ error: 'Download failed' });
     }
 });
 

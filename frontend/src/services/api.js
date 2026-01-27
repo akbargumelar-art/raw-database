@@ -110,8 +110,10 @@ export const uploadAPI = {
 export const lookupAPI = {
     process: (formData, onProgress) => api.post('/lookup/process', formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
-        responseType: 'blob', // Important for download
         onUploadProgress: onProgress
+    }),
+    download: (fileKey) => api.get(`/lookup/download/${fileKey}`, {
+        responseType: 'blob'
     })
 };
 

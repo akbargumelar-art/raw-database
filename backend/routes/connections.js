@@ -7,9 +7,11 @@ const { encrypt, decrypt } = require('../utils/encryption');
 // Get all database connections
 router.get('/', auth, async (req, res) => {
     try {
+        console.log('GET /api/connections request received');
         const [connections] = await getInternalPool().execute(
             'SELECT id, name, host, port, username, is_default, is_active, created_at FROM database_connections WHERE is_active = TRUE ORDER BY is_default DESC, name ASC'
         );
+        console.log('GET /api/connections success, found:', connections.length);
         res.json(connections);
     } catch (error) {
         console.error('Get connections error:', error);

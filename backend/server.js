@@ -160,4 +160,13 @@ process.on('SIGINT', async () => {
     });
 });
 
+process.on('uncaughtException', (err) => {
+    console.error('UNCAUGHT EXCEPTION:', err);
+    // Keep running if possible, but usually restart is needed
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('UNHANDLED REJECTION:', reason);
+});
+
 module.exports = app;

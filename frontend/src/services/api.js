@@ -41,11 +41,11 @@ export const authAPI = {
 
 // Database API
 export const databaseAPI = {
-    list: () => api.get('/databases'),
-    getStats: () => api.get('/databases/stats'),
-    getTables: (database) => api.get(`/databases/${database}/tables`),
-    getTableInfo: (database, table) => api.get(`/databases/${database}/${table}`),
-    getStructure: (database, table) => api.get(`/databases/${database}/${table}/structure`),
+    list: (connectionId) => api.get('/databases', { params: { connectionId } }),
+    getStats: (connectionId) => api.get('/databases/stats', { params: { connectionId } }),
+    getTables: (database, connectionId) => api.get(`/databases/${database}/tables`, { params: { connectionId } }),
+    getTableInfo: (database, table, connectionId) => api.get(`/databases/${database}/${table}`, { params: { connectionId } }),
+    getStructure: (database, table, connectionId) => api.get(`/databases/${database}/${table}/structure`, { params: { connectionId } }),
     create: (name) => api.post('/databases', { name }),
     drop: (database) => api.delete(`/databases/${database}`)
 };

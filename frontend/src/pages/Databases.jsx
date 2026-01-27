@@ -2,7 +2,9 @@ import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { useToast } from '../hooks/useToast';
+import { useConnection } from '../contexts/ConnectionContext';
 import { databaseAPI } from '../services/api';
+import ConnectionSelector from '../components/ConnectionSelector';
 import {
     Database,
     Plus,
@@ -24,16 +26,21 @@ const Databases = () => {
     const [creating, setCreating] = useState(false);
     const [deleting, setDeleting] = useState(false);
     const { isAdmin } = useAuth();
+    const { selectedConnection } = useConnection();
     const toast = useToast();
 
     useEffect(() => {
-        loadDatabases();
-    }, []);
+        if (selectedConnection) {
+            loadDatabases();
+        }
+    }, [selectedConnection]);
 
     const loadDatabases = async () => {
+        if (!selectedConnection) return;
+
         setLoading(true);
         try {
-            const res = await databaseAPI.getStats();
+            const res = await databaseAPI.getStats(selectedConnection.id);
             setDbStats(res.data);
         } catch (error) {
             toast.error('Failed to load databases');
@@ -118,6 +125,9 @@ const Databases = () => {
                     )}
                 </div>
             </div>
+
+            {/* Connection Selector */}
+            <ConnectionSelector className="max-w-md" />
 
             {/* Database Activity Cards */}
             {loading ? (

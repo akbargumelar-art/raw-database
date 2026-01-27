@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './hooks/useAuth';
 import { ToastProvider } from './hooks/useToast';
+import { ConnectionProvider } from './contexts/ConnectionContext';
 
 // Layout
 import Layout from './components/Layout/Layout';
@@ -81,7 +82,9 @@ function App() {
         <BrowserRouter>
             <AuthProvider>
                 <ToastProvider>
-                    <AppRoutes />
+                    <ConnectionProvider>
+                        <AppRoutes />
+                    </ConnectionProvider>
                 </ToastProvider>
             </AuthProvider>
         </BrowserRouter>

@@ -2,7 +2,9 @@ import { useState, useEffect, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useToast } from '../hooks/useToast';
 import { useAuth } from '../hooks/useAuth';
+import { useConnection } from '../contexts/ConnectionContext';
 import { databaseAPI, dataAPI } from '../services/api';
+import ConnectionSelector from '../components/ConnectionSelector';
 import {
     Database,
     Table2,
@@ -28,6 +30,7 @@ const DataExplorer = () => {
     const [searchParams, setSearchParams] = useSearchParams();
     const toast = useToast();
     const { isAdmin } = useAuth();
+    const { selectedConnection } = useConnection();
 
     // Selection state
     const [databases, setDatabases] = useState([]);
@@ -65,8 +68,10 @@ const DataExplorer = () => {
     const [showColumnPicker, setShowColumnPicker] = useState(false);
 
     useEffect(() => {
-        loadDatabases();
-    }, []);
+        if (selectedConnection) {
+            loadDatabases();
+        }
+    }, [selectedConnection]);
 
     useEffect(() => {
         if (selectedDb) {
@@ -89,8 +94,9 @@ const DataExplorer = () => {
     }, [columns]);
 
     const loadDatabases = async () => {
+        if (!selectedConnection) return;
         try {
-            const res = await databaseAPI.list();
+            const res = await databaseAPI.list(selectedConnection.id);
             setDatabases(res.data);
         } catch (error) {
             toast.error('Failed to load databases');
@@ -98,8 +104,9 @@ const DataExplorer = () => {
     };
 
     const loadTables = async (db) => {
+        if (!selectedConnection) return;
         try {
-            const res = await databaseAPI.getTables(db);
+            const res = await databaseAPI.getTables(db, selectedConnection.id);
             setTables(res.data);
         } catch (error) {
             toast.error('Failed to load tables');
@@ -230,6 +237,9 @@ const DataExplorer = () => {
                     </button>
                 )}
             </div>
+
+            {/* Connection Selector */}
+            <ConnectionSelector className="max-w-md" />
 
             {/* Database & Table Selection */}
             <div className="flex gap-4 flex-wrap">

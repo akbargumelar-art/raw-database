@@ -83,13 +83,24 @@ router.get('/stats', auth, async (req, res) => {
 // Get all databases
 router.get('/', auth, async (req, res) => {
     try {
-        const [databases] = await getInternalPool().execute('SHOW DATABASES');
+        const { connectionId } = req.query;
+        const { getConnectionPool } = require('../config/db');
+
+        // Get the appropriate connection pool
+        let pool;
+        if (connectionId) {
+            pool = await getConnectionPool(parseInt(connectionId));
+        } else {
+            pool = getInternalPool();
+        }
+
+        const [databases] = await pool.execute('SHOW DATABASES');
         const dbNames = databases
             .map(db => db.Database)
             .filter(name => !['information_schema', 'mysql', 'performance_schema', 'sys'].includes(name));
 
-        // For operators, filter by allowed databases
-        if (req.user.role !== 'admin') {
+        // For operators, filter by allowed databases (only for internal connection)
+        if (req.user.role !== 'admin' && !connectionId) {
             const [users] = await getInternalPool().execute(
                 'SELECT allowed_databases FROM users WHERE id = ?',
                 [req.user.id]

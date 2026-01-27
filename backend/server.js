@@ -11,6 +11,7 @@ const databaseRoutes = require('./routes/databases');
 const schemaRoutes = require('./routes/schema');
 const dataRoutes = require('./routes/data');
 const uploadRoutes = require('./routes/upload');
+const connectionsRoutes = require('./routes/connections');
 
 const app = express();
 
@@ -28,6 +29,7 @@ app.use('/api/databases', databaseRoutes);
 app.use('/api/schema', schemaRoutes);
 app.use('/api/data', dataRoutes);
 app.use('/api/upload', uploadRoutes);
+app.use('/api/connections', connectionsRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {
@@ -71,6 +73,42 @@ const initDatabase = async () => {
                 ['admin', hashedPassword]
             );
             console.log('Default admin user created: admin / admin123');
+        }
+
+        // Step 5: Create database_connections table
+        console.log('Creating database_connections table if not exists...');
+        await internalPool.execute(`
+      CREATE TABLE IF NOT EXISTS database_connections (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        name VARCHAR(255) NOT NULL UNIQUE,
+        host VARCHAR(255) NOT NULL,
+        port INT DEFAULT 3306,
+        username VARCHAR(255) NOT NULL,
+        password TEXT NOT NULL,
+        is_default BOOLEAN DEFAULT FALSE,
+        is_active BOOLEAN DEFAULT TRUE,
+        created_by INT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL,
+        INDEX idx_is_default (is_default),
+        INDEX idx_is_active (is_active)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+
+        // Step 6: Create localhost connection if not exists
+        const [connections] = await internalPool.execute(
+            "SELECT * FROM database_connections WHERE name = 'Localhost' LIMIT 1"
+        );
+
+        if (connections.length === 0) {
+            const { encrypt } = require('./utils/encryption');
+            const encryptedPassword = encrypt(process.env.DB_PASSWORD);
+            await internalPool.execute(
+                "INSERT INTO database_connections (name, host, port, username, password, is_default, created_by) VALUES (?, ?, ?, ?, ?, TRUE, 1)",
+                ['Localhost', process.env.DB_HOST, process.env.DB_PORT || 3306, process.env.DB_USER, encryptedPassword]
+            );
+            console.log('Default localhost connection created');
         }
 
         console.log('Database initialized successfully.');

@@ -12,7 +12,8 @@ import {
     ChevronLeft,
     ChevronRight,
     Menu,
-    X
+    X,
+    Server
 } from 'lucide-react';
 
 const navItems = [
@@ -21,6 +22,7 @@ const navItems = [
     { path: '/designer', icon: Table2, label: 'Schema Designer' },
     { path: '/explorer', icon: Database, label: 'Data Explorer' },
     { path: '/upload', icon: Upload, label: 'Upload Data' },
+    { path: '/servers', icon: Server, label: 'Database Servers' },
 ];
 
 const adminItems = [

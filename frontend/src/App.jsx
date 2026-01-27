@@ -13,6 +13,7 @@ import DatabaseDesigner from './pages/DatabaseDesigner';
 import DataExplorer from './pages/DataExplorer';
 import UploadData from './pages/UploadData';
 import UserManagement from './pages/UserManagement';
+import DatabaseServers from './pages/DatabaseServers';
 
 // Protected Route component
 const ProtectedRoute = ({ children, adminOnly = false }) => {
@@ -67,6 +68,7 @@ const AppRoutes = () => {
                         <UserManagement />
                     </ProtectedRoute>
                 } />
+                <Route path="servers" element={<DatabaseServers />} />
             </Route>
 
             <Route path="*" element={<Navigate to="/" replace />} />

@@ -71,10 +71,25 @@ router.post('/process', auth, upload.single('file'), async (req, res) => {
         const BATCH_SIZE = 1000;
         const pool = await getConnectionPool(parseInt(connectionId), database);
 
+        // Detect correct column name (Case Insensitive)
+        const firstRowKeys = Object.keys(data[0] || {});
+        console.log(`[Lookup] Requested Column: '${sourceColumn}'`);
+        console.log(`[Lookup] Actual Excel Headers:`, firstRowKeys);
+
+        const actualSourceColumn = firstRowKeys.find(k => k.toLowerCase() === sourceColumn.toLowerCase());
+
+        if (!actualSourceColumn) {
+            console.error(`[Lookup] Column '${sourceColumn}' not found in Excel file.`);
+            fs.unlinkSync(filePath);
+            return res.status(400).json({ error: `Column '${sourceColumn}' not found in file. Available: ${firstRowKeys.join(', ')}` });
+        }
+
+        console.log(`[Lookup] Resolved Column: '${actualSourceColumn}'`);
+
         // Collect all lookup values
         // Filter out empty values to avoid useless queries
         const lookupValues = data
-            .map(row => row[sourceColumn])
+            .map(row => row[actualSourceColumn])
             .filter(val => val !== undefined && val !== null && val !== '');
 
         // Use a Map for results: LookupValue -> ResultRow
@@ -120,7 +135,7 @@ router.post('/process', auth, upload.single('file'), async (req, res) => {
 
         // 5. Merge Data
         const enrichedData = data.map((row, index) => {
-            const lookupVal = String(row[sourceColumn] || '').trim();
+            const lookupVal = String(row[actualSourceColumn] || '').trim();
             const match = resultMap.get(lookupVal);
 
             if (index < 3) console.log(`[Lookup] Row ${index} val: '${lookupVal}' Found: ${!!match}`);

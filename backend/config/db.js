@@ -1,5 +1,6 @@
 const mysql = require('mysql2/promise');
 require('dotenv').config();
+const { decrypt } = require('../utils/encryption');
 
 // Root pool (no database selected) - used for creating database
 const rootPool = mysql.createPool({
@@ -76,9 +77,6 @@ const getConnectionPool = async (connectionId, database = null) => {
     }
 
     try {
-        // Import here to avoid circular dependency
-        const { decrypt } = require('../utils/encryption');
-
         // Get connection credentials from database_connections table
         const [connections] = await getInternalPool().execute(
             'SELECT host, port, username, password FROM database_connections WHERE id = ? AND is_active = TRUE',

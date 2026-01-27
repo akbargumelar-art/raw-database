@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { useToast } from '../hooks/useToast';
+import { useConnection } from '../contexts/ConnectionContext';
 import { Database, Eye, EyeOff, Loader2 } from 'lucide-react';
 
 const Login = () => {
@@ -10,6 +11,7 @@ const Login = () => {
     const [showPassword, setShowPassword] = useState(false);
     const [loading, setLoading] = useState(false);
     const { login } = useAuth();
+    const { refreshConnections } = useConnection();
     const toast = useToast();
     const navigate = useNavigate();
 
@@ -23,6 +25,8 @@ const Login = () => {
         setLoading(true);
         try {
             await login(username, password);
+            // Load database connections after successful login
+            await refreshConnections();
             toast.success('Login successful!');
             navigate('/');
         } catch (error) {

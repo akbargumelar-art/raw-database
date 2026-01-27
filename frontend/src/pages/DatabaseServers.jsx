@@ -3,6 +3,7 @@ import { Server, Plus, Edit2, Trash2, Check, X, Loader2, TestTube } from 'lucide
 import { connectionsAPI } from '../services/connectionsAPI';
 import { useToast } from '../hooks/useToast';
 import { useAuth } from '../hooks/useAuth';
+import { useConnection } from '../contexts/ConnectionContext';
 import ConnectionFormModal from '../components/ConnectionFormModal';
 
 const DatabaseServers = () => {
@@ -13,6 +14,7 @@ const DatabaseServers = () => {
     const [testingId, setTestingId] = useState(null);
     const toast = useToast();
     const { user } = useAuth();
+    const { selectConnection } = useConnection();
 
     const isAdmin = user?.role === 'admin';
 
@@ -61,6 +63,13 @@ const DatabaseServers = () => {
         try {
             await connectionsAPI.setDefault(id);
             toast.success(`"${name}" set as default connection`);
+
+            // Auto-switch to the new default connection
+            const newDefault = connections.find(c => c.id === id);
+            if (newDefault) {
+                selectConnection({ ...newDefault, is_default: true });
+            }
+
             loadConnections();
         } catch (error) {
             toast.error(error.response?.data?.error || 'Failed to set default connection');

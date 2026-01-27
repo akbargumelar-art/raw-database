@@ -90,7 +90,7 @@ router.get('/stats', auth, async (req, res) => {
         res.json(dbStats);
     } catch (error) {
         console.error('Get dashboard stats error:', error);
-        res.status(500).json({ error: 'Failed to fetch dashboard stats.' });
+        res.status(500).json({ error: error.message || 'Failed to fetch dashboard stats.' });
     }
 });
 
@@ -127,7 +127,7 @@ router.get('/', auth, async (req, res) => {
         res.json(dbNames);
     } catch (error) {
         console.error('Get databases error:', error);
-        res.status(500).json({ error: 'Failed to fetch databases.' });
+        res.status(500).json({ error: error.message || 'Failed to fetch databases.' });
     }
 });
 
@@ -164,7 +164,7 @@ router.get('/:database/tables', auth, async (req, res) => {
         res.json(tableNames);
     } catch (error) {
         console.error('Get tables error:', error);
-        res.status(500).json({ error: 'Failed to fetch tables.' });
+        res.status(500).json({ error: error.message || 'Failed to fetch tables.' });
     }
 });
 

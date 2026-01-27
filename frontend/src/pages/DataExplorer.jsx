@@ -109,7 +109,7 @@ const DataExplorer = () => {
             const res = await databaseAPI.getTables(db, selectedConnection.id);
             setTables(res.data);
         } catch (error) {
-            toast.error('Failed to load tables');
+            toast.error(error.response?.data?.error || 'Failed to load tables');
         }
     };
 

@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { getInternalPool, getDbConnection } = require('../config/db');
 const { auth, adminOnly } = require('../middleware/auth');
+const { verifyDatabaseAccess } = require('../middleware/permissions');
 
 // Get dashboard stats (last update info for each database)
 router.get('/stats', auth, async (req, res) => {
@@ -22,14 +23,15 @@ router.get('/stats', auth, async (req, res) => {
             .map(db => db.Database)
             .filter(name => !['information_schema', 'mysql', 'performance_schema', 'sys'].includes(name));
 
-        // For operators, filter by allowed databases (only for internal connection)
+        // For operators, filter by allowed databases
         let allowedDbs = dbNames;
-        if (req.user.role !== 'admin' && !connectionId) {
+        if (req.user.role !== 'admin') {
             const [users] = await getInternalPool().execute(
                 'SELECT allowed_databases FROM users WHERE id = ?',
                 [req.user.id]
             );
-            allowedDbs = JSON.parse(users[0]?.allowed_databases || '[]');
+            const userPermissions = JSON.parse(users[0]?.allowed_databases || '[]');
+            allowedDbs = dbNames.filter(db => verifyDatabaseAccess(userPermissions, db, connectionId));
         }
 
         // Get last update time for each database
@@ -111,14 +113,14 @@ router.get('/', auth, async (req, res) => {
             .map(db => db.Database)
             .filter(name => !['information_schema', 'mysql', 'performance_schema', 'sys'].includes(name));
 
-        // For operators, filter by allowed databases (only for internal connection)
-        if (req.user.role !== 'admin' && !connectionId) {
+        // For operators, filter by allowed databases
+        if (req.user.role !== 'admin') {
             const [users] = await getInternalPool().execute(
                 'SELECT allowed_databases FROM users WHERE id = ?',
                 [req.user.id]
             );
             const allowedDbs = JSON.parse(users[0]?.allowed_databases || '[]');
-            const filtered = dbNames.filter(db => allowedDbs.includes(db));
+            const filtered = dbNames.filter(db => verifyDatabaseAccess(allowedDbs, db, connectionId));
             return res.json(filtered);
         }
 
@@ -136,14 +138,14 @@ router.get('/:database/tables', auth, async (req, res) => {
         const { connectionId } = req.query;
         const { getConnectionPool } = require('../config/db');
 
-        // Check permission for operators (only for internal connection)
-        if (req.user.role !== 'admin' && !connectionId) {
+        // Check permission for operators
+        if (req.user.role !== 'admin') {
             const [users] = await getInternalPool().execute(
                 'SELECT allowed_databases FROM users WHERE id = ?',
                 [req.user.id]
             );
             const allowedDbs = JSON.parse(users[0]?.allowed_databases || '[]');
-            if (!allowedDbs.includes(database)) {
+            if (!verifyDatabaseAccess(allowedDbs, database, connectionId)) {
                 return res.status(403).json({ error: 'Access denied to this database.' });
             }
         }

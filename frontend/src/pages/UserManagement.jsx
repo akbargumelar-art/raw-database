@@ -121,10 +121,21 @@ const UserManagement = () => {
 
     const toggleDatabase = (dbName) => {
         const current = formData.allowed_databases;
-        if (current.includes(dbName)) {
-            setFormData({ ...formData, allowed_databases: current.filter(d => d !== dbName) });
+        const connId = selectedConnection ? String(selectedConnection.id) : '1';
+        const scopedDb = `${connId}:${dbName}`;
+
+        // Check if present (either scoped or legacy if localhost)
+        const isPresent = current.includes(scopedDb) || (connId === '1' && current.includes(dbName));
+
+        if (isPresent) {
+            // Remove both scoped and legacy versions
+            setFormData({
+                ...formData,
+                allowed_databases: current.filter(d => d !== scopedDb && d !== dbName)
+            });
         } else {
-            setFormData({ ...formData, allowed_databases: [...current, dbName] });
+            // Add scoped version
+            setFormData({ ...formData, allowed_databases: [...current, scopedDb] });
         }
     };
 
@@ -194,7 +205,7 @@ const UserManagement = () => {
                                             <div className="flex flex-wrap gap-1">
                                                 {user.allowed_databases.slice(0, 3).map(db => (
                                                     <span key={db} className="px-2 py-0.5 rounded bg-gray-800 text-xs text-gray-300">
-                                                        {db}
+                                                        {db.includes(':') ? `${db.split(':')[1]} (ID:${db.split(':')[0]})` : db}
                                                     </span>
                                                 ))}
                                                 {user.allowed_databases.length > 3 && (
@@ -295,7 +306,10 @@ const UserManagement = () => {
                                             <label key={db} className="flex items-center gap-2 cursor-pointer">
                                                 <input
                                                     type="checkbox"
-                                                    checked={formData.allowed_databases.includes(db)}
+                                                    checked={
+                                                        formData.allowed_databases.includes(`${selectedConnection ? selectedConnection.id : '1'}:${db}`) ||
+                                                        ((!selectedConnection || String(selectedConnection.id) === '1') && formData.allowed_databases.includes(db))
+                                                    }
                                                     onChange={() => toggleDatabase(db)}
                                                     className="rounded border-gray-600"
                                                 />

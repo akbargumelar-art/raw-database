@@ -166,7 +166,8 @@ const PORT = process.env.PORT || 5000;
 
 const server = app.listen(PORT, async () => {
     console.log(`Raw Data server running on port ${PORT}`);
-    await initDatabase();
+    console.log('DEBUG MODE: DATABASE INIT SKIPPED');
+    // await initDatabase();
 });
 
 // Graceful shutdown

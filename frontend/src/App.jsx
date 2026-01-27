@@ -2,6 +2,8 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './hooks/useAuth';
 import { ToastProvider } from './hooks/useToast';
 import { ConnectionProvider } from './contexts/ConnectionContext';
+import { LoadingProvider } from './contexts/LoadingContext';
+import LoadingOverlay from './components/LoadingOverlay';
 
 // Layout
 import Layout from './components/Layout/Layout';
@@ -83,7 +85,10 @@ function App() {
             <AuthProvider>
                 <ToastProvider>
                     <ConnectionProvider>
-                        <AppRoutes />
+                        <LoadingProvider>
+                            <LoadingOverlay />
+                            <AppRoutes />
+                        </LoadingProvider>
                     </ConnectionProvider>
                 </ToastProvider>
             </AuthProvider>

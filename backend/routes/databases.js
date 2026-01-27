@@ -268,4 +268,118 @@ router.delete('/:database', auth, adminOnly, async (req, res) => {
     }
 });
 
+// --------------------------------------------------------------------------
+// INDEX MANAGEMENT ROUTES
+// --------------------------------------------------------------------------
+
+// Get indexes for a table
+router.get('/:database/:table/indexes', auth, async (req, res) => {
+    try {
+        const { database, table } = req.params;
+        const { connectionId } = req.query;
+
+        // Permission check
+        let hasAccess = true;
+        if (req.user.role !== 'admin') {
+            const [users] = await getInternalPool().execute(
+                'SELECT allowed_databases FROM users WHERE id = ?',
+                [req.user.id]
+            );
+            const content = JSON.parse(users[0]?.allowed_databases || '[]');
+            if (!verifyDatabaseAccess(content, database, connectionId)) {
+                hasAccess = false;
+            }
+        }
+        if (!hasAccess) return res.status(403).json({ error: 'Access denied' });
+
+        const pool = await getConnectionPool(parseInt(connectionId || 1), database);
+
+        // SHOW INDEX FROM table
+        const [indexes] = await pool.query(`SHOW INDEX FROM \`${table}\` FROM \`${database}\``);
+        res.json(indexes);
+
+    } catch (error) {
+        console.error('Get indexes error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Create index
+router.post('/:database/:table/indexes', auth, async (req, res) => {
+    try {
+        const { database, table } = req.params;
+        const { connectionId, indexName, columns, type } = req.body;
+
+        if (!indexName || !columns || columns.length === 0) {
+            return res.status(400).json({ error: 'Index name and columns are required' });
+        }
+
+        // Permission check
+        let hasAccess = true;
+        if (req.user.role !== 'admin') {
+            const [users] = await getInternalPool().execute(
+                'SELECT allowed_databases FROM users WHERE id = ?',
+                [req.user.id]
+            );
+            const content = JSON.parse(users[0]?.allowed_databases || '[]');
+            if (!verifyDatabaseAccess(content, database, connectionId)) {
+                hasAccess = false;
+            }
+        }
+        if (!hasAccess) return res.status(403).json({ error: 'Access denied' });
+
+        const pool = await getConnectionPool(parseInt(connectionId || 1), database);
+
+        // Construct Query
+        // type: 'INDEX' | 'UNIQUE' | 'FULLTEXT'
+        let sql = 'CREATE ';
+        if (type === 'UNIQUE') sql += 'UNIQUE ';
+        if (type === 'FULLTEXT') sql += 'FULLTEXT ';
+        sql += `INDEX \`${indexName}\` ON \`${table}\` (`;
+        sql += columns.map(c => \`\`${c}\`\`).join(', '); // Simple column list for now
+        sql += ')';
+
+        await pool.query(sql);
+        res.json({ message: 'Index created successfully' });
+
+    } catch (error) {
+        console.error('Create index error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Drop index
+router.delete('/:database/:table/indexes/:indexName', auth, async (req, res) => {
+    try {
+        const { database, table, indexName } = req.params;
+        const { connectionId } = req.query;
+
+        // Permission check
+        let hasAccess = true;
+        if (req.user.role !== 'admin') {
+            const [users] = await getInternalPool().execute(
+                'SELECT allowed_databases FROM users WHERE id = ?',
+                [req.user.id]
+            );
+            const content = JSON.parse(users[0]?.allowed_databases || '[]');
+            if (!verifyDatabaseAccess(content, database, connectionId)) {
+                hasAccess = false;
+            }
+        }
+        if (!hasAccess) return res.status(403).json({ error: 'Access denied' });
+
+        const pool = await getConnectionPool(parseInt(connectionId || 1), database);
+
+        // DROP INDEX index_name ON table_name
+        // Can also use ALTER TABLE table DROP INDEX index
+        await pool.query(`DROP INDEX \`${indexName}\` ON \`${table}\``);
+
+        res.json({ message: 'Index dropped successfully' });
+
+    } catch (error) {
+        console.error('Drop index error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
 module.exports = router;

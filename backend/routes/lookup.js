@@ -59,7 +59,8 @@ router.post('/process', auth, upload.single('file'), async (req, res) => {
         const workbook = xlsx.readFile(filePath);
         const sheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[sheetName];
-        let data = xlsx.utils.sheet_to_json(worksheet, { defval: '' });
+        // Use raw: false to ensure all values are read as strings (preserves leading zeros)
+        let data = xlsx.utils.sheet_to_json(worksheet, { defval: '', raw: false });
 
         if (data.length === 0) {
             fs.unlinkSync(filePath);
@@ -98,8 +99,8 @@ router.post('/process', auth, upload.single('file'), async (req, res) => {
                 const [rows] = await pool.execute(sql, batch);
 
                 rows.forEach(row => {
-                    // key is the value of targetColumn
-                    const key = String(row[targetColumn]);
+                    // key is the value of targetColumn, trimmed
+                    const key = String(row[targetColumn]).trim();
                     resultMap.set(key, row);
                 });
             } catch (err) {
@@ -112,7 +113,7 @@ router.post('/process', auth, upload.single('file'), async (req, res) => {
 
         // 5. Merge Data
         const enrichedData = data.map(row => {
-            const lookupVal = String(row[sourceColumn] || '');
+            const lookupVal = String(row[sourceColumn] || '').trim();
             const match = resultMap.get(lookupVal);
 
             if (match) {

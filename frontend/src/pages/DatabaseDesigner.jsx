@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useToast } from '../hooks/useToast';
+import { useConnection } from '../contexts/ConnectionContext';
 import { databaseAPI, schemaAPI } from '../services/api';
+import ConnectionSelector from '../components/ConnectionSelector';
 import {
     Table2,
     Plus,
@@ -29,6 +31,7 @@ const DATA_TYPES = [
 
 const DatabaseDesigner = () => {
     const toast = useToast();
+    const { selectedConnection } = useConnection();
     const [activeTab, setActiveTab] = useState('create');
 
     // Common state
@@ -54,8 +57,10 @@ const DatabaseDesigner = () => {
     const [analyzing, setAnalyzing] = useState(false);
 
     useEffect(() => {
-        loadDatabases();
-    }, []);
+        if (selectedConnection) {
+            loadDatabases();
+        }
+    }, [selectedConnection]);
 
     useEffect(() => {
         if (selectedDb) {
@@ -70,8 +75,9 @@ const DatabaseDesigner = () => {
     }, [selectedDb, selectedTable, activeTab]);
 
     const loadDatabases = async () => {
+        if (!selectedConnection) return;
         try {
-            const res = await databaseAPI.list();
+            const res = await databaseAPI.list(selectedConnection.id);
             setDatabases(res.data);
         } catch (error) {
             toast.error('Failed to load databases');
@@ -223,9 +229,14 @@ const DatabaseDesigner = () => {
     return (
         <div className="space-y-6 animate-fade-in">
             {/* Header */}
-            <div>
-                <h1 className="text-2xl font-bold text-white">Database Designer</h1>
-                <p className="text-gray-400 mt-1">Create and edit table schemas</p>
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div>
+                    <h1 className="text-2xl font-bold text-white">Database Designer</h1>
+                    <p className="text-gray-400 mt-1">Create and edit table schemas</p>
+                </div>
+                <div className="w-full md:w-72">
+                    <ConnectionSelector />
+                </div>
             </div>
 
             {/* Database Selection */}
@@ -250,8 +261,8 @@ const DatabaseDesigner = () => {
                         key={tab}
                         onClick={() => setActiveTab(tab)}
                         className={`px-4 py-3 font-medium transition-colors relative ${activeTab === tab
-                                ? 'text-brand-400'
-                                : 'text-gray-400 hover:text-gray-200'
+                            ? 'text-brand-400'
+                            : 'text-gray-400 hover:text-gray-200'
                             }`}
                     >
                         {tab === 'create' ? 'Create Table' : 'Edit Structure'}

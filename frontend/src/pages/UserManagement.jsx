@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '../hooks/useAuth';
 import { useToast } from '../hooks/useToast';
 import { authAPI, databaseAPI } from '../services/api';
+import { useConnection } from '../contexts/ConnectionContext';
+import ConnectionSelector from '../components/ConnectionSelector';
 import {
     Users,
     Plus,
@@ -18,6 +20,7 @@ import {
 
 const UserManagement = () => {
     const { user: currentUser } = useAuth();
+    const { selectedConnection } = useConnection();
     const toast = useToast();
 
     const [users, setUsers] = useState([]);
@@ -37,14 +40,14 @@ const UserManagement = () => {
 
     useEffect(() => {
         loadData();
-    }, []);
+    }, [selectedConnection]);
 
     const loadData = async () => {
         setLoading(true);
         try {
             const [usersRes, dbRes] = await Promise.all([
                 authAPI.getUsers(),
-                databaseAPI.list()
+                selectedConnection ? databaseAPI.list(selectedConnection.id) : { data: [] }
             ]);
             setUsers(usersRes.data);
             setDatabases(dbRes.data);
@@ -128,15 +131,20 @@ const UserManagement = () => {
     return (
         <div className="space-y-6 animate-fade-in">
             {/* Header */}
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
                     <h1 className="text-2xl font-bold text-white">User Management</h1>
                     <p className="text-gray-400 mt-1">Manage users and permissions</p>
                 </div>
-                <button onClick={openCreateModal} className="btn-primary flex items-center gap-2">
-                    <Plus className="w-5 h-5" />
-                    Add User
-                </button>
+                <div className="flex items-center gap-4">
+                    <div className="w-64">
+                        <ConnectionSelector />
+                    </div>
+                    <button onClick={openCreateModal} className="btn-primary flex items-center gap-2">
+                        <Plus className="w-5 h-5" />
+                        Add User
+                    </button>
+                </div>
             </div>
 
             {/* Users List */}
@@ -173,8 +181,8 @@ const UserManagement = () => {
                                     </td>
                                     <td>
                                         <span className={`px-2 py-1 rounded text-xs font-medium ${user.role === 'admin'
-                                                ? 'bg-brand-500/20 text-brand-400'
-                                                : 'bg-gray-700 text-gray-300'
+                                            ? 'bg-brand-500/20 text-brand-400'
+                                            : 'bg-gray-700 text-gray-300'
                                             }`}>
                                             {user.role}
                                         </span>
@@ -280,7 +288,7 @@ const UserManagement = () => {
                                 <div>
                                     <label className="block text-sm font-medium text-gray-400 mb-2">
                                         <Database className="w-4 h-4 inline mr-1" />
-                                        Allowed Databases
+                                        Allowed Databases ({selectedConnection?.name || 'Localhost'})
                                     </label>
                                     <div className="max-h-48 overflow-y-auto border border-gray-800 rounded-lg p-3 space-y-2">
                                         {databases.map(db => (

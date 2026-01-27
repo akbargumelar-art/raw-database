@@ -74,11 +74,11 @@ const DataExplorer = () => {
     }, [selectedConnection]);
 
     useEffect(() => {
-        if (selectedDb) {
+        if (selectedDb && selectedConnection) {
             loadTables(selectedDb);
             setSearchParams({ database: selectedDb, ...(selectedTable && { table: selectedTable }) });
         }
-    }, [selectedDb]);
+    }, [selectedDb, selectedConnection]);
 
     useEffect(() => {
         if (selectedDb && selectedTable) {

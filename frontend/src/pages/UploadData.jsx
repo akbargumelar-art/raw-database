@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { useToast } from '../hooks/useToast';
+import { useConnection } from '../contexts/ConnectionContext';
 import { databaseAPI, uploadAPI } from '../services/api';
+import ConnectionSelector from '../components/ConnectionSelector';
 import {
     Upload,
     FileSpreadsheet,
@@ -15,6 +17,7 @@ import {
 
 const UploadData = () => {
     const toast = useToast();
+    const { selectedConnection } = useConnection();
     const fileInputRef = useRef(null);
 
     const [databases, setDatabases] = useState([]);
@@ -38,8 +41,10 @@ const UploadData = () => {
     const [polling, setPolling] = useState(false);
 
     useEffect(() => {
-        loadDatabases();
-    }, []);
+        if (selectedConnection) {
+            loadDatabases();
+        }
+    }, [selectedConnection]);
 
     useEffect(() => {
         if (selectedDb) {
@@ -54,8 +59,9 @@ const UploadData = () => {
     }, [taskId]);
 
     const loadDatabases = async () => {
+        if (!selectedConnection) return;
         try {
-            const res = await databaseAPI.list();
+            const res = await databaseAPI.list(selectedConnection.id);
             setDatabases(res.data);
         } catch (error) {
             toast.error('Failed to load databases');
@@ -63,8 +69,9 @@ const UploadData = () => {
     };
 
     const loadTables = async (db) => {
+        if (!selectedConnection) return;
         try {
-            const res = await databaseAPI.getTables(db);
+            const res = await databaseAPI.getTables(db, selectedConnection.id);
             setTables(res.data);
         } catch (error) {
             toast.error('Failed to load tables');
@@ -72,8 +79,9 @@ const UploadData = () => {
     };
 
     const loadTableColumns = async (db, table) => {
+        if (!selectedConnection) return;
         try {
-            const res = await databaseAPI.getTableInfo(db, table);
+            const res = await databaseAPI.getTableInfo(db, table, selectedConnection.id);
             setTableColumns(res.data.columns || []);
             // Extract primary keys
             const pkFields = (res.data.columns || []).filter(c => c.key === 'PRI').map(c => c.name);
@@ -173,9 +181,14 @@ const UploadData = () => {
     return (
         <div className="space-y-6 animate-fade-in">
             {/* Header */}
-            <div>
-                <h1 className="text-2xl font-bold text-white">Upload Data</h1>
-                <p className="text-gray-400 mt-1">Import CSV or Excel files with batch processing</p>
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div>
+                    <h1 className="text-2xl font-bold text-white">Upload Data</h1>
+                    <p className="text-gray-400 mt-1">Import CSV or Excel files with batch processing</p>
+                </div>
+                <div className="w-full md:w-72">
+                    <ConnectionSelector />
+                </div>
             </div>
 
             {/* Configuration */}

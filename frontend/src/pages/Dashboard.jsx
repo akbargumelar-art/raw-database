@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
+import { useConnection } from '../contexts/ConnectionContext';
 import { databaseAPI } from '../services/api';
+import ConnectionSelector from '../components/ConnectionSelector';
 import {
     Database,
     Table2,
@@ -15,16 +17,19 @@ import {
 
 const Dashboard = () => {
     const { user } = useAuth();
+    const { selectedConnection } = useConnection();
     const [dbStats, setDbStats] = useState([]);
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        loadDashboardStats();
-    }, []);
+        if (selectedConnection) {
+            loadDashboardStats();
+        }
+    }, [selectedConnection]);
 
     const loadDashboardStats = async () => {
         try {
-            const res = await databaseAPI.getStats();
+            const res = await databaseAPI.getStats(selectedConnection.id);
             setDbStats(res.data);
         } catch (error) {
             console.error('Failed to load dashboard stats:', error);
@@ -135,13 +140,18 @@ const Dashboard = () => {
     return (
         <div className="space-y-8 animate-fade-in">
             {/* Header */}
-            <div>
-                <h1 className="text-3xl font-bold text-white">
-                    Welcome back, {user?.username}
-                </h1>
-                <p className="text-gray-400 mt-2">
-                    Here's your database activity summary.
-                </p>
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div>
+                    <h1 className="text-3xl font-bold text-white">
+                        Welcome back, {user?.username}
+                    </h1>
+                    <p className="text-gray-400 mt-2">
+                        Here's your database activity summary.
+                    </p>
+                </div>
+                <div className="w-full md:w-72">
+                    <ConnectionSelector />
+                </div>
             </div>
 
             {/* Summary Stats */}

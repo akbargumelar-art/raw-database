@@ -80,16 +80,16 @@ const DatabaseDesigner = () => {
             const res = await databaseAPI.list(selectedConnection.id);
             setDatabases(res.data);
         } catch (error) {
-            toast.error('Failed to load databases');
+            toast.error(error.response?.data?.error || 'Failed to load databases');
         }
     };
 
     const loadTables = async (db) => {
         try {
-            const res = await databaseAPI.getTables(db);
+            const res = await databaseAPI.getTables(db, selectedConnection?.id);
             setTables(res.data);
         } catch (error) {
-            toast.error('Failed to load tables');
+            toast.error(error.response?.data?.error || 'Failed to load tables');
         }
     };
 
@@ -97,10 +97,10 @@ const DatabaseDesigner = () => {
         if (!selectedDb || !selectedTable) return;
         setLoadingStructure(true);
         try {
-            const res = await databaseAPI.getStructure(selectedDb, selectedTable);
+            const res = await databaseAPI.getStructure(selectedDb, selectedTable, selectedConnection?.id);
             setStructure(res.data.columns);
         } catch (error) {
-            toast.error('Failed to load structure');
+            toast.error(error.response?.data?.error || 'Failed to load structure');
         } finally {
             setLoadingStructure(false);
         }

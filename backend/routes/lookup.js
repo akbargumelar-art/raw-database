@@ -67,8 +67,8 @@ router.post('/process', auth, upload.single('file'), async (req, res) => {
             return res.status(400).json({ error: 'File is empty' });
         }
 
-        // 3. Prepare Batching
-        const BATCH_SIZE = 1000;
+        // 3. Prepare Batching (OPTIMIZED: Reduced from 1000 to 500 for better memory management)
+        const BATCH_SIZE = 500;
         const pool = await getConnectionPool(parseInt(connectionId), database);
 
         // Detect correct column name (Case Insensitive)

@@ -21,7 +21,7 @@ const ConnectionSelector = ({ className = '' }) => {
                     const conn = connections.find(c => c.id === parseInt(e.target.value));
                     if (conn) selectConnection(conn);
                 }}
-                className="appearance-none w-full px-4 py-2 pr-10 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent cursor-pointer hover:bg-gray-750 transition-colors"
+                className="appearance-none w-full px-4 py-2 pr-20 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent cursor-pointer hover:bg-gray-750 transition-colors truncate"
             >
                 {connections.map((conn) => (
                     <option key={conn.id} value={conn.id}>

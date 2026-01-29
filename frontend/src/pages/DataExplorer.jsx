@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useToast } from '../hooks/useToast';
 import { useAuth } from '../hooks/useAuth';
@@ -23,7 +23,8 @@ import {
     Code,
     Play,
     Loader2,
-    Calendar
+    Calendar,
+    Zap
 } from 'lucide-react';
 
 const DataExplorer = () => {
@@ -53,6 +54,14 @@ const DataExplorer = () => {
     const [sortBy, setSortBy] = useState('');
     const [sortOrder, setSortOrder] = useState('ASC');
 
+    // Debounced search state
+    const [debouncedSearch, setDebouncedSearch] = useState('');
+    const [isSearching, setIsSearching] = useState(false);
+    const searchTimeout = useRef(null);
+
+    // Performance metrics
+    const [queryPerformance, setQueryPerformance] = useState(null);
+
     // Edit state
     const [editingRow, setEditingRow] = useState(null);
     const [editData, setEditData] = useState({});
@@ -67,6 +76,25 @@ const DataExplorer = () => {
     const [sqlSearch, setSqlSearch] = useState('');
     const [sqlPage, setSqlPage] = useState(1);
     const [sqlPageSize, setSqlPageSize] = useState(50);
+
+    // Debounced search effect
+    useEffect(() => {
+        if (searchTimeout.current) {
+            clearTimeout(searchTimeout.current);
+        }
+
+        setIsSearching(true);
+        searchTimeout.current = setTimeout(() => {
+            setDebouncedSearch(search);
+            setIsSearching(false);
+        }, 500);
+
+        return () => {
+            if (searchTimeout.current) {
+                clearTimeout(searchTimeout.current);
+            }
+        };
+    }, [search]);
 
     // Reset SQL pagination when query changes
     useEffect(() => {
@@ -142,7 +170,7 @@ const DataExplorer = () => {
             loadData();
             setSearchParams({ database: selectedDb, table: selectedTable });
         }
-    }, [selectedDb, selectedTable, pagination.page, sortBy, sortOrder]);
+    }, [selectedDb, selectedTable, pagination.page, sortBy, sortOrder, debouncedSearch, dateFrom, dateTo]);
 
     useEffect(() => {
         if (columns.length > 0 && visibleColumns.length === 0) {
@@ -177,7 +205,7 @@ const DataExplorer = () => {
             const res = await dataAPI.get(selectedDb, selectedTable, {
                 page: pagination.page,
                 limit: pagination.limit,
-                search,
+                search: debouncedSearch,
                 searchColumn: searchColumn || undefined,
                 dateColumn: dateColumn || undefined,
                 dateFrom: dateFrom || undefined,
@@ -189,6 +217,7 @@ const DataExplorer = () => {
             setData(res.data.data);
             setColumns(res.data.columns);
             setPagination(res.data.pagination);
+            setQueryPerformance(res.data.performance);
         } catch (error) {
             toast.error('Failed to load data');
         } finally {
@@ -213,7 +242,7 @@ const DataExplorer = () => {
     const handleExport = async () => {
         try {
             const res = await dataAPI.export(selectedDb, selectedTable, {
-                search,
+                search: debouncedSearch,
                 searchColumn: searchColumn || undefined,
                 dateColumn: dateColumn || undefined,
                 dateFrom: dateFrom || undefined,
@@ -442,15 +471,19 @@ const DataExplorer = () => {
             {selectedTable && !sqlMode && (
                 <div className="card p-4 space-y-4">
                     <div className="flex gap-4 flex-wrap">
-                        <div className="flex-1 min-w-[200px]">
+                        <div className="flex-1 min-w-[200px] relative">
                             <input
                                 type="text"
                                 value={search}
                                 onChange={(e) => setSearch(e.target.value)}
-                                onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
                                 placeholder="Search..."
                                 className="input-dark w-full"
                             />
+                            {isSearching && (
+                                <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                                    <Loader2 className="w-4 h-4 animate-spin text-brand-400" />
+                                </div>
+                            )}
                         </div>
                         <select
                             value={searchColumn}
@@ -462,14 +495,12 @@ const DataExplorer = () => {
                                 <option key={c.name} value={c.name}>{c.name}</option>
                             ))}
                         </select>
-                        <button
-                            onClick={handleSearch}
-                            className="btn-primary px-6 flex items-center gap-2"
-                            title="Search"
-                        >
-                            <Search className="w-4 h-4" />
-                            <span>Search</span>
-                        </button>
+                        {!searchColumn && search && (
+                            <div className="flex items-center gap-2 text-xs text-yellow-400 bg-yellow-400/10 px-3 py-2 rounded-lg">
+                                <Zap className="w-3 h-3" />
+                                <span>Searching top 5 columns only. Select specific column for faster search.</span>
+                            </div>
+                        )}
                     </div>
 
                     <div className="flex gap-4 flex-wrap items-end">
@@ -504,7 +535,16 @@ const DataExplorer = () => {
                                 )}
                             </>
                         )}
-                        <div className="ml-auto flex gap-2">
+                        <div className="ml-auto flex gap-2 items-center">
+                            {queryPerformance && (
+                                <div className="text-xs text-gray-500 flex items-center gap-1 mr-2">
+                                    <Zap className="w-3 h-3" />
+                                    <span>{queryPerformance.queryTime}ms</span>
+                                    {queryPerformance.isApproximate && (
+                                        <span className="text-yellow-400" title="Using approximate count for better performance">~</span>
+                                    )}
+                                </div>
+                            )}
                             <button onClick={() => setShowColumnPicker(!showColumnPicker)} className="btn-ghost text-sm">
                                 <Filter className="w-4 h-4" />
                             </button>
@@ -628,6 +668,9 @@ const DataExplorer = () => {
                     <div className="flex items-center justify-between p-4 border-t border-gray-800">
                         <p className="text-sm text-gray-400">
                             Showing {((pagination.page - 1) * pagination.limit) + 1} to {Math.min(pagination.page * pagination.limit, pagination.total)} of {pagination.total}
+                            {pagination.isApproximate && (
+                                <span className="text-yellow-400 ml-1" title="Approximate count for better performance">~</span>
+                            )}
                         </p>
                         <div className="flex gap-2">
                             <button

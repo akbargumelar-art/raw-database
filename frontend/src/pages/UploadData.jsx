@@ -12,7 +12,8 @@ import {
     CheckCircle,
     XCircle,
     BarChart3,
-    X
+    X,
+    Download
 } from 'lucide-react';
 
 const UploadData = () => {
@@ -175,6 +176,25 @@ const UploadData = () => {
         }
     };
 
+    const handleDownloadTemplate = async () => {
+        if (!selectedDb || !selectedTable) {
+            toast.error('Please select database and table first');
+            return;
+        }
+
+        try {
+            const res = await uploadAPI.downloadTemplate(selectedDb, selectedTable, selectedConnection?.id);
+            const url = window.URL.createObjectURL(new Blob([res.data]));
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `${selectedTable}_template.xlsx`;
+            a.click();
+            toast.success('Template downloaded');
+        } catch (error) {
+            toast.error('Failed to download template');
+        }
+    };
+
     const progressPercent = status?.totalRows
         ? Math.round((status.processedRows / status.totalRows) * 100)
         : 0;
@@ -218,17 +238,33 @@ const UploadData = () => {
                             <Table2 className="w-4 h-4 inline mr-2" />
                             Table
                         </label>
-                        <select
-                            value={selectedTable}
-                            onChange={(e) => setSelectedTable(e.target.value)}
-                            className="select-dark w-full"
-                            disabled={!selectedDb || uploading}
-                        >
-                            <option value="">Select table...</option>
-                            {tables.map(t => (
-                                <option key={t} value={t}>{t}</option>
-                            ))}
-                        </select>
+                        <div className="flex gap-2">
+                            <select
+                                value={selectedTable}
+                                onChange={(e) => setSelectedTable(e.target.value)}
+                                className="select-dark w-full"
+                                disabled={!selectedDb || uploading}
+                            >
+                                <option value="">Select table...</option>
+                                {tables.map(t => (
+                                    <option key={t} value={t}>{t}</option>
+                                ))}
+                            </select>
+                            <button
+                                onClick={handleDownloadTemplate}
+                                disabled={!selectedDb || !selectedTable || uploading}
+                                className="btn-secondary px-4 flex items-center gap-2 whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed"
+                                title="Download Excel template for this table"
+                            >
+                                <Download className="w-4 h-4" />
+                                Template
+                            </button>
+                        </div>
+                        {selectedTable && (
+                            <p className="text-xs text-gray-500 mt-1">
+                                💡 Download template to see correct column format
+                            </p>
+                        )}
                     </div>
                 </div>
 

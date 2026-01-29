@@ -40,6 +40,106 @@ const upload = multer({
 // Store upload progress in memory (use Redis in production)
 const uploadProgress = new Map();
 
+// Download Excel template for a table
+router.get('/template/:database/:table', auth, checkDbPermission, async (req, res) => {
+    try {
+        const { database, table } = req.params;
+        const { connectionId } = req.query;
+
+        let pool;
+        if (connectionId) {
+            pool = await getConnectionPool(parseInt(connectionId), database);
+        } else {
+            pool = await getDbConnection(database);
+        }
+
+        // Get table structure
+        const [columns] = await pool.execute(`DESCRIBE \`${table}\``);
+
+        // Create sample data row with column descriptions
+        const sampleRow = {};
+        const exampleRow = {};
+
+        columns.forEach(col => {
+            const columnName = col.Field;
+            const columnType = col.Type.toLowerCase();
+
+            // Add column description based on type
+            if (columnType.includes('int')) {
+                sampleRow[columnName] = 'number (e.g., 123)';
+                exampleRow[columnName] = 123;
+            } else if (columnType.includes('varchar') || columnType.includes('text')) {
+                sampleRow[columnName] = 'text (e.g., "Sample Text")';
+                exampleRow[columnName] = 'Sample';
+            } else if (columnType.includes('date')) {
+                sampleRow[columnName] = 'date (e.g., 2024-01-15)';
+                exampleRow[columnName] = '2024-01-15';
+            } else if (columnType.includes('datetime') || columnType.includes('timestamp')) {
+                sampleRow[columnName] = 'datetime (e.g., 2024-01-15 10:30:00)';
+                exampleRow[columnName] = '2024-01-15 10:30:00';
+            } else if (columnType.includes('decimal') || columnType.includes('float') || columnType.includes('double')) {
+                sampleRow[columnName] = 'decimal (e.g., 123.45)';
+                exampleRow[columnName] = 123.45;
+            } else if (columnType.includes('enum')) {
+                // Extract enum values
+                const enumMatch = columnType.match(/enum\((.*)\)/);
+                if (enumMatch) {
+                    const enumValues = enumMatch[1].replace(/'/g, '').split(',');
+                    sampleRow[columnName] = `enum: ${enumValues.join(' | ')}`;
+                    exampleRow[columnName] = enumValues[0];
+                }
+            } else {
+                sampleRow[columnName] = `${columnType}`;
+                exampleRow[columnName] = '';
+            }
+        });
+
+        // Create workbook with two sheets: Documentation and Example
+        const workbook = xlsx.utils.book_new();
+
+        // Sheet 1: Instructions
+        const instructions = [
+            ['Excel Upload Template - ' + table],
+            [''],
+            ['Instructions:'],
+            ['1. Fill in your data starting from row 2 (keep the header row)'],
+            ['2. Match the column names exactly as shown in the header'],
+            ['3. Follow the data format examples provided in the "Example" sheet'],
+            ['4. Remove these instruction rows before uploading'],
+            [''],
+            ['Column Definitions:']
+        ];
+
+        columns.forEach(col => {
+            instructions.push([
+                col.Field,
+                col.Type,
+                col.Null === 'YES' ? 'Optional' : 'Required',
+                col.Key === 'PRI' ? 'PRIMARY KEY' : col.Key || ''
+            ]);
+        });
+
+        const wsInstructions = xlsx.utils.aoa_to_sheet(instructions);
+        xlsx.utils.book_append_sheet(workbook, wsInstructions, 'Instructions');
+
+        // Sheet 2: Example data with actual column headers
+        const wsData = xlsx.utils.json_to_sheet([exampleRow], { header: Object.keys(exampleRow) });
+        xlsx.utils.book_append_sheet(workbook, wsData, 'Example');
+
+        // Generate buffer
+        const buffer = xlsx.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+
+        // Send file
+        res.setHeader('Content-Disposition', `attachment; filename="${table}_template.xlsx"`);
+        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        res.send(buffer);
+
+    } catch (error) {
+        console.error('Template generation error:', error);
+        res.status(500).json({ error: 'Failed to generate template.' });
+    }
+});
+
 // Get upload progress
 router.get('/progress/:taskId', auth, (req, res) => {
     const { taskId } = req.params;

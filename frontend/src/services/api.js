@@ -103,7 +103,12 @@ export const uploadAPI = {
             onUploadProgress: onProgress
         });
     },
-    getProgress: (taskId) => api.get(`/upload/progress/${taskId}`)
+    getProgress: (taskId) => api.get(`/upload/progress/${taskId}`),
+    downloadTemplate: (database, table, connectionId) =>
+        api.get(`/upload/template/${database}/${table}`, {
+            params: { connectionId },
+            responseType: 'blob'
+        })
 };
 
 // Lookup API

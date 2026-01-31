@@ -18,7 +18,7 @@ import {
     Trash2,
     Play,
     RefreshCw,
-    CloudUpload,
+    UploadCloud,
     HardDrive,
     ArrowRight
 } from 'lucide-react';
@@ -370,7 +370,7 @@ const UploadData = () => {
                             : 'bg-gray-800 text-gray-400 hover:text-white'
                             }`}
                     >
-                        <CloudUpload className="w-5 h-5" />
+                        <UploadCloud className="w-5 h-5" />
                         <span className="font-medium">Phase 1: Upload ke Server</span>
                     </button>
                     <ArrowRight className="w-5 h-5 text-gray-600" />
@@ -392,7 +392,7 @@ const UploadData = () => {
                 <div className="space-y-6">
                     <div className="card p-6">
                         <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
-                            <CloudUpload className="w-5 h-5 text-brand-400" />
+                            <UploadCloud className="w-5 h-5 text-brand-400" />
                             Phase 1: Upload File ke Server
                         </h2>
                         <p className="text-gray-400 text-sm mb-4">
@@ -736,14 +736,14 @@ const UploadData = () => {
                                                     strokeDashoffset={`${2 * Math.PI * 56 * (1 - progressPercent / 100)}`}
                                                     strokeLinecap="round"
                                                     className={`transition-all duration-500 ${status.status === 'completed' ? 'text-green-500' :
-                                                            status.status === 'error' ? 'text-red-500' : 'text-brand-500'
+                                                        status.status === 'error' ? 'text-red-500' : 'text-brand-500'
                                                         }`}
                                                 />
                                             </svg>
                                             {/* Percentage text in center */}
                                             <div className="absolute inset-0 flex flex-col items-center justify-center">
                                                 <span className={`text-3xl font-bold ${status.status === 'completed' ? 'text-green-400' :
-                                                        status.status === 'error' ? 'text-red-400' : 'text-white'
+                                                    status.status === 'error' ? 'text-red-400' : 'text-white'
                                                     }`}>
                                                     {progressPercent}%
                                                 </span>
@@ -766,7 +766,7 @@ const UploadData = () => {
                                         <div className="h-3 bg-gray-800 rounded-full overflow-hidden">
                                             <div
                                                 className={`h-full transition-all duration-500 rounded-full ${status.status === 'completed' ? 'bg-green-500' :
-                                                        status.status === 'error' ? 'bg-red-500' : 'bg-gradient-to-r from-brand-600 to-brand-400'
+                                                    status.status === 'error' ? 'bg-red-500' : 'bg-gradient-to-r from-brand-600 to-brand-400'
                                                     }`}
                                                 style={{ width: `${progressPercent}%` }}
                                             />

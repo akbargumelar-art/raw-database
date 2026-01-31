@@ -189,14 +189,38 @@ const loadProgress = () => {
     try {
         if (fs.existsSync(PROGRESS_FILE_PATH)) {
             const data = JSON.parse(fs.readFileSync(PROGRESS_FILE_PATH, 'utf8'));
+            let loadedCount = 0;
+            let staleCount = 0;
+
             data.forEach(([key, value]) => {
                 // Only load if not too old (max 24 hours)
                 const age = Date.now() - parseInt(key);
                 if (age < 24 * 60 * 60 * 1000) {
-                    uploadProgress.set(key, value);
+                    // Check if the referenced file still exists in pendingFiles
+                    const fileExists = value.fileId && pendingFiles.has(value.fileId);
+
+                    // For 'processing' status, only keep if file exists
+                    if (value.status === 'processing') {
+                        if (fileExists) {
+                            uploadProgress.set(key, value);
+                            loadedCount++;
+                        } else {
+                            staleCount++;
+                            console.log(`[Cleanup] Removing stale progress for missing file: ${value.fileName}`);
+                        }
+                    } else {
+                        // Keep completed/error entries for a while (for UI showing)
+                        uploadProgress.set(key, value);
+                        loadedCount++;
+                    }
                 }
             });
-            console.log(`Loaded ${uploadProgress.size} progress entries`);
+
+            console.log(`Loaded ${loadedCount} progress entries`);
+            if (staleCount > 0) {
+                console.log(`[Cleanup] Removed ${staleCount} stale progress entries`);
+                saveProgress(); // Save cleaned up progress
+            }
         }
     } catch (err) {
         console.error('Failed to load progress:', err);

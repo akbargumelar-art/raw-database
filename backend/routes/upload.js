@@ -5,10 +5,135 @@ const path = require('path');
 const fs = require('fs');
 const xlsx = require('xlsx');
 const csv = require('csv-parser');
+const { Worker } = require('worker_threads');
 const { getDbConnection, getConnectionPool } = require('../config/db');
 const { auth } = require('../middleware/auth');
 const { checkDbPermission } = require('../middleware/permissions');
 const { formatToMysql, isDateColumn } = require('../utils/dateFormatter');
+
+/**
+ * Parse file using Worker Thread to avoid blocking main event loop
+ * For large files, parsing happens in a separate thread
+ */
+function parseFileWithWorker(filePath, ext, taskId) {
+    return new Promise((resolve, reject) => {
+        // For smaller files (< 5MB), use main thread for speed
+        const stats = fs.statSync(filePath);
+        const fileSizeMB = stats.size / (1024 * 1024);
+
+        if (fileSizeMB < 5) {
+            // Small file - parse directly
+            try {
+                if (ext === '.csv') {
+                    const rows = [];
+                    fs.createReadStream(filePath)
+                        .pipe(csv())
+                        .on('data', (row) => rows.push(row))
+                        .on('end', () => resolve(rows))
+                        .on('error', reject);
+                } else {
+                    const workbook = xlsx.readFile(filePath, {
+                        type: 'file',
+                        dense: false,
+                        cellDates: true,
+                        cellNF: false,
+                        cellText: false
+                    });
+                    const sheetName = workbook.SheetNames[0];
+                    const sheet = workbook.Sheets[sheetName];
+                    if (!sheet) throw new Error(`Sheet "${sheetName}" is empty`);
+                    const rows = xlsx.utils.sheet_to_json(sheet, { defval: null });
+                    resolve(rows);
+                }
+            } catch (err) {
+                reject(err);
+            }
+            return;
+        }
+
+        // Large file - use worker thread
+        console.log(`[Worker] Starting worker thread for ${fileSizeMB.toFixed(2)}MB file`);
+
+        const workerPath = path.join(__dirname, '../workers/fileParser.js');
+
+        // Check if worker file exists
+        if (!fs.existsSync(workerPath)) {
+            console.log('[Worker] Worker file not found, falling back to main thread');
+            // Fallback: parse with yielding to event loop
+            parseWithYield(filePath, ext, taskId)
+                .then(resolve)
+                .catch(reject);
+            return;
+        }
+
+        const worker = new Worker(workerPath, {
+            workerData: { filePath, ext, taskId }
+        });
+
+        worker.on('message', (msg) => {
+            if (msg.type === 'log') {
+                console.log(`[Worker ${taskId}] ${msg.message}`);
+            } else if (msg.type === 'status') {
+                console.log(`[Worker ${taskId}] Status: ${msg.message}`);
+            } else if (msg.type === 'result') {
+                if (msg.success) {
+                    resolve(msg.rows);
+                } else {
+                    reject(new Error(msg.error));
+                }
+            }
+        });
+
+        worker.on('error', (err) => {
+            console.error(`[Worker ${taskId}] Error:`, err);
+            reject(err);
+        });
+
+        worker.on('exit', (code) => {
+            if (code !== 0) {
+                reject(new Error(`Worker stopped with exit code ${code}`));
+            }
+        });
+    });
+}
+
+/**
+ * Fallback: Parse file with periodic yields to event loop
+ * This allows other requests to be processed between chunks
+ */
+async function parseWithYield(filePath, ext, taskId) {
+    return new Promise((resolve, reject) => {
+        // Use setImmediate to yield to event loop
+        setImmediate(() => {
+            try {
+                if (ext === '.csv') {
+                    const rows = [];
+                    fs.createReadStream(filePath)
+                        .pipe(csv())
+                        .on('data', (row) => rows.push(row))
+                        .on('end', () => resolve(rows))
+                        .on('error', reject);
+                } else {
+                    console.log(`[Phase 2 ${taskId}] Reading Excel file (yielded)...`);
+                    const workbook = xlsx.readFile(filePath, {
+                        type: 'file',
+                        dense: false,
+                        cellDates: true,
+                        cellNF: false,
+                        cellText: false
+                    });
+                    const sheetName = workbook.SheetNames[0];
+                    const sheet = workbook.Sheets[sheetName];
+                    if (!sheet) throw new Error(`Sheet "${sheetName}" is empty`);
+                    const rows = xlsx.utils.sheet_to_json(sheet, { defval: null });
+                    resolve(rows);
+                }
+            } catch (err) {
+                reject(err);
+            }
+        });
+    });
+}
 
 // Configure multer
 const storage = multer.diskStorage({
@@ -299,26 +424,9 @@ async function processFileToDatabase(fileId, taskId, database, table, batchSize,
 
         let rows = [];
 
-        // Parse file
-        console.log(`[Phase 2 ${taskId}] Parsing file: ${fileInfo.originalName}`);
-
-        if (ext === '.csv') {
-            rows = await parseCsv(filePath);
-        } else {
-            const workbook = xlsx.readFile(filePath, {
-                type: 'file',
-                dense: false,
-                cellDates: true,
-                cellNF: false,
-                cellText: false
-            });
-            const sheetName = workbook.SheetNames[0];
-            const sheet = workbook.Sheets[sheetName];
-            if (!sheet) {
-                throw new Error(`Sheet "${sheetName}" is empty`);
-            }
-            rows = xlsx.utils.sheet_to_json(sheet, { defval: null });
-        }
+        // Parse file using Worker Thread (non-blocking)
+        console.log(`[Phase 2 ${taskId}] Parsing file with Worker: ${fileInfo.originalName}`);
+        rows = await parseFileWithWorker(filePath, ext, taskId);
 
         if (!rows || rows.length === 0) {
             throw new Error('No data found in file');

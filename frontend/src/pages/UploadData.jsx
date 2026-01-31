@@ -13,7 +13,8 @@ import {
     XCircle,
     BarChart3,
     X,
-    Download
+    Download,
+    AlertTriangle
 } from 'lucide-react';
 
 const UploadData = () => {
@@ -40,6 +41,12 @@ const UploadData = () => {
     const [taskId, setTaskId] = useState(null);
     const [status, setStatus] = useState(null);
     const [polling, setPolling] = useState(false);
+    const [uploadError, setUploadError] = useState(null);
+
+    // Constants
+    const MAX_FILE_SIZE_MB = 200;
+    const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
+    const ALLOWED_EXTENSIONS = ['.csv', '.xlsx', '.xls'];
 
     useEffect(() => {
         if (selectedConnection) {
@@ -100,10 +107,35 @@ const UploadData = () => {
 
     const handleFileSelect = (e) => {
         const selectedFile = e.target.files?.[0];
-        if (selectedFile) {
-            setFile(selectedFile);
-            setStatus(null);
+        if (!selectedFile) return;
+
+        // Reset previous errors
+        setUploadError(null);
+        setStatus(null);
+
+        // Validate file extension
+        const ext = '.' + selectedFile.name.split('.').pop().toLowerCase();
+        if (!ALLOWED_EXTENSIONS.includes(ext)) {
+            setUploadError({
+                type: 'INVALID_TYPE',
+                message: `Tipe file tidak didukung: ${ext}`,
+                details: `Hanya file ${ALLOWED_EXTENSIONS.join(', ')} yang diizinkan.`
+            });
+            return;
         }
+
+        // Validate file size
+        if (selectedFile.size > MAX_FILE_SIZE_BYTES) {
+            const fileSizeMB = (selectedFile.size / 1024 / 1024).toFixed(2);
+            setUploadError({
+                type: 'FILE_TOO_LARGE',
+                message: `File terlalu besar: ${fileSizeMB} MB`,
+                details: `Batas maksimal ukuran file adalah ${MAX_FILE_SIZE_MB} MB. Coba pecah file menjadi bagian yang lebih kecil.`
+            });
+            return;
+        }
+
+        setFile(selectedFile);
     };
 
     const pollProgress = async () => {
@@ -133,15 +165,97 @@ const UploadData = () => {
         }, 1000);
     };
 
+    const getErrorDetails = (error) => {
+        // Network error (no response from server)
+        if (!error.response) {
+            if (error.code === 'ECONNABORTED' || error.message?.includes('timeout')) {
+                return {
+                    type: 'TIMEOUT',
+                    message: 'Koneksi timeout',
+                    details: 'Upload memakan waktu terlalu lama. Pastikan koneksi internet stabil dan coba lagi dengan file yang lebih kecil.'
+                };
+            }
+            if (error.message?.includes('Network Error')) {
+                return {
+                    type: 'NETWORK',
+                    message: 'Koneksi terputus',
+                    details: 'Tidak dapat terhubung ke server. Periksa koneksi internet atau server mungkin sedang tidak aktif.'
+                };
+            }
+            return {
+                type: 'NETWORK',
+                message: 'Error jaringan',
+                details: error.message || 'Terjadi kesalahan koneksi. Silakan coba lagi.'
+            };
+        }
+
+        const status = error.response?.status;
+        const serverMessage = error.response?.data?.error || error.response?.data?.message;
+
+        // Specific HTTP status codes
+        switch (status) {
+            case 413:
+                return {
+                    type: 'FILE_TOO_LARGE',
+                    message: 'File terlalu besar untuk server',
+                    details: 'Server menolak file karena ukurannya melebihi batas. Hubungi administrator untuk meningkatkan limit di Nginx/server.'
+                };
+            case 408:
+                return {
+                    type: 'TIMEOUT',
+                    message: 'Request timeout di server',
+                    details: 'Server memakan waktu terlalu lama untuk memproses file. Coba dengan file yang lebih kecil.'
+                };
+            case 502:
+            case 503:
+            case 504:
+                return {
+                    type: 'SERVER_ERROR',
+                    message: `Server error (${status})`,
+                    details: 'Server sedang overload atau tidak tersedia. Coba lagi dalam beberapa menit.'
+                };
+            case 500:
+                return {
+                    type: 'SERVER_ERROR',
+                    message: 'Internal server error',
+                    details: serverMessage || 'Terjadi kesalahan di server saat memproses file.'
+                };
+            case 400:
+                return {
+                    type: 'BAD_REQUEST',
+                    message: 'Request tidak valid',
+                    details: serverMessage || 'Data yang dikirim tidak sesuai format.'
+                };
+            default:
+                return {
+                    type: 'UNKNOWN',
+                    message: serverMessage || `Error (${status})`,
+                    details: 'Terjadi kesalahan yang tidak diketahui. Silakan coba lagi.'
+                };
+        }
+    };
+
     const handleUpload = async () => {
         if (!selectedDb || !selectedTable || !file) {
-            toast.error('Select database, table, and file');
+            toast.error('Pilih database, table, dan file terlebih dahulu');
+            return;
+        }
+
+        // Re-validate file size before upload
+        if (file.size > MAX_FILE_SIZE_BYTES) {
+            const fileSizeMB = (file.size / 1024 / 1024).toFixed(2);
+            setUploadError({
+                type: 'FILE_TOO_LARGE',
+                message: `File terlalu besar: ${fileSizeMB} MB`,
+                details: `Batas maksimal adalah ${MAX_FILE_SIZE_MB} MB.`
+            });
             return;
         }
 
         setUploading(true);
         setUploadProgress(0);
         setStatus(null);
+        setUploadError(null);
 
         try {
             const res = await uploadAPI.upload(
@@ -159,9 +273,12 @@ const UploadData = () => {
             );
 
             setTaskId(res.data.taskId);
-            toast.info('Upload started, processing...');
+            toast.info('Upload dimulai, sedang memproses...');
         } catch (error) {
-            toast.error(error.response?.data?.error || 'Upload failed');
+            console.error('Upload error:', error);
+            const errorDetails = getErrorDetails(error);
+            setUploadError(errorDetails);
+            toast.error(errorDetails.message);
             setUploading(false);
         }
     };
@@ -171,6 +288,7 @@ const UploadData = () => {
         setStatus(null);
         setTaskId(null);
         setUploadProgress(0);
+        setUploadError(null);
         if (fileInputRef.current) {
             fileInputRef.current.value = '';
         }
@@ -376,6 +494,79 @@ const UploadData = () => {
                     </div>
                 )}
             </div>
+
+            {/* Upload Error Display */}
+            {uploadError && (
+                <div className="card p-6 border-2 border-red-500/50 bg-red-950/20">
+                    <div className="flex items-start gap-4">
+                        <div className="w-12 h-12 rounded-lg bg-red-500/20 flex items-center justify-center flex-shrink-0">
+                            <AlertTriangle className="w-6 h-6 text-red-400" />
+                        </div>
+                        <div className="flex-1">
+                            <h3 className="text-lg font-semibold text-red-400 mb-1">
+                                {uploadError.message}
+                            </h3>
+                            <p className="text-gray-300 text-sm mb-3">
+                                {uploadError.details}
+                            </p>
+                            <div className="flex items-center gap-2 text-xs text-gray-500">
+                                <span className="px-2 py-1 bg-gray-800 rounded">
+                                    Error Type: {uploadError.type}
+                                </span>
+                            </div>
+                        </div>
+                        <button
+                            onClick={() => setUploadError(null)}
+                            className="p-2 rounded hover:bg-gray-700 text-gray-400 hover:text-white"
+                        >
+                            <X className="w-5 h-5" />
+                        </button>
+                    </div>
+
+                    {/* Suggestions based on error type */}
+                    {uploadError.type === 'FILE_TOO_LARGE' && (
+                        <div className="mt-4 p-3 bg-gray-800/50 rounded-lg">
+                            <p className="text-sm text-gray-400 font-medium mb-2">💡 Saran:</p>
+                            <ul className="text-sm text-gray-500 list-disc list-inside space-y-1">
+                                <li>Pecah file CSV menjadi beberapa bagian yang lebih kecil</li>
+                                <li>Gunakan tool seperti Excel untuk split file</li>
+                                <li>Hubungi admin untuk meningkatkan limit upload</li>
+                            </ul>
+                        </div>
+                    )}
+
+                    {uploadError.type === 'NETWORK' && (
+                        <div className="mt-4 p-3 bg-gray-800/50 rounded-lg">
+                            <p className="text-sm text-gray-400 font-medium mb-2">💡 Saran:</p>
+                            <ul className="text-sm text-gray-500 list-disc list-inside space-y-1">
+                                <li>Periksa koneksi internet Anda</li>
+                                <li>Refresh halaman dan coba lagi</li>
+                                <li>Pastikan server sedang aktif</li>
+                            </ul>
+                        </div>
+                    )}
+
+                    {uploadError.type === 'TIMEOUT' && (
+                        <div className="mt-4 p-3 bg-gray-800/50 rounded-lg">
+                            <p className="text-sm text-gray-400 font-medium mb-2">💡 Saran:</p>
+                            <ul className="text-sm text-gray-500 list-disc list-inside space-y-1">
+                                <li>Gunakan file yang lebih kecil (&lt;100MB)</li>
+                                <li>Pastikan koneksi internet stabil</li>
+                                <li>Coba upload di waktu yang berbeda</li>
+                            </ul>
+                        </div>
+                    )}
+
+                    <div className="mt-4 flex gap-2">
+                        <button
+                            onClick={resetUpload}
+                            className="btn-secondary text-sm"
+                        >
+                            Pilih File Lain
+                        </button>
+                    </div>
+                </div>
+            )}
 
             {/* Progress */}
             {(uploading || status) && (

@@ -250,6 +250,91 @@ loadPendingFiles();
 loadProgress();
 
 // =====================================================
+// AUTO-CLEANUP ORPHAN FILES
+// =====================================================
+
+const cleanupOrphanFiles = () => {
+    try {
+        const uploadDir = path.join(__dirname, '../uploads');
+        if (!fs.existsSync(uploadDir)) return;
+
+        const files = fs.readdirSync(uploadDir);
+        let deletedCount = 0;
+        let freedBytes = 0;
+
+        // Get list of tracked file paths
+        const trackedPaths = new Set();
+        pendingFiles.forEach((file) => {
+            trackedPaths.add(file.filePath);
+        });
+
+        files.forEach(file => {
+            // Skip hidden files, temp folder, and json files
+            if (file.startsWith('.') || file === 'temp') return;
+
+            const filePath = path.join(uploadDir, file);
+            const stat = fs.statSync(filePath);
+
+            // Skip directories
+            if (stat.isDirectory()) return;
+
+            // If file is not tracked in pendingFiles, it's orphan
+            if (!trackedPaths.has(filePath)) {
+                freedBytes += stat.size;
+                fs.unlinkSync(filePath);
+                deletedCount++;
+                console.log(`[Cleanup] Deleted orphan file: ${file}`);
+            }
+        });
+
+        if (deletedCount > 0) {
+            console.log(`[Cleanup] Deleted ${deletedCount} orphan files, freed ${(freedBytes / 1024 / 1024).toFixed(2)} MB`);
+        }
+
+        // Also cleanup old lookup results (older than 7 days)
+        cleanupOldLookupResults();
+
+    } catch (err) {
+        console.error('Failed to cleanup orphan files:', err);
+    }
+};
+
+const cleanupOldLookupResults = () => {
+    try {
+        const tempDir = path.join(__dirname, '../uploads/temp');
+        if (!fs.existsSync(tempDir)) return;
+
+        const files = fs.readdirSync(tempDir);
+        const sevenDaysAgo = Date.now() - (7 * 24 * 60 * 60 * 1000);
+        let deletedCount = 0;
+        let freedBytes = 0;
+
+        files.forEach(file => {
+            if (!file.startsWith('lookup_result_')) return;
+
+            const filePath = path.join(tempDir, file);
+            const stat = fs.statSync(filePath);
+
+            // Delete if older than 7 days
+            if (stat.mtimeMs < sevenDaysAgo) {
+                freedBytes += stat.size;
+                fs.unlinkSync(filePath);
+                deletedCount++;
+            }
+        });
+
+        if (deletedCount > 0) {
+            console.log(`[Cleanup] Deleted ${deletedCount} old lookup results, freed ${(freedBytes / 1024 / 1024).toFixed(2)} MB`);
+        }
+    } catch (err) {
+        console.error('Failed to cleanup lookup results:', err);
+    }
+};
+
+// Run cleanup on startup
+cleanupOrphanFiles();
+
+// =====================================================
 // TWO-PHASE UPLOAD ENDPOINTS
 // =====================================================
 

@@ -68,7 +68,10 @@ async function parseFile(filePath, ext) {
                 });
 
                 fs.createReadStream(filePath)
-                    .pipe(csv({ separator: delimiter }))
+                    .pipe(csv({
+                        separator: delimiter,
+                        mapHeaders: ({ header }) => header.trim().replace(/^\uFEFF/, '') // Remove BOM and trim
+                    }))
                     .on('data', (row) => rows.push(row))
                     .on('end', () => resolve(rows))
                     .on('error', reject);
@@ -90,10 +93,20 @@ async function parseFile(filePath, ext) {
 
                 parentPort.postMessage({ type: 'log', message: 'Converting to JSON...' });
 
-                const rows = xlsx.utils.sheet_to_json(worksheet, {
+                let rawRows = xlsx.utils.sheet_to_json(worksheet, {
                     defval: null,
                     raw: false,
                     dateNF: 'yyyy-mm-dd'
+                });
+
+                // Clean Excel keys (trim & remove BOM)
+                const rows = rawRows.map(row => {
+                    const cleanRow = {};
+                    Object.keys(row).forEach(key => {
+                        const cleanKey = key.trim().replace(/^\uFEFF/, '');
+                        cleanRow[cleanKey] = row[key];
+                    });
+                    return cleanRow;
                 });
 
                 parentPort.postMessage({ type: 'log', message: `Parsed ${rows.length} rows` });

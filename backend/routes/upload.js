@@ -605,8 +605,10 @@ async function processFileToDatabase(fileId, taskId, database, table, batchSize,
             duplicateCheckFields = duplicateCheckFieldsInput;
         }
 
-        // Get table structure for date columns
+        // Get table structure
         const [columns] = await pool.execute(`DESCRIBE \`${table}\``);
+        const validColumns = columns.map(c => c.Field);
+
         const dateColumns = columns
             .filter(c => ['date', 'datetime', 'timestamp'].some(t => c.Type.toLowerCase().includes(t)))
             .map(c => c.Field);
@@ -636,7 +638,13 @@ async function processFileToDatabase(fileId, taskId, database, table, batchSize,
         saveProgress();
 
         // Process in batches
-        const columnNames = Object.keys(rows[0] || {});
+        const fileColumns = Object.keys(rows[0] || {});
+        // Filter columns: intersection of file columns and valid table columns
+        const columnNames = fileColumns.filter(col => validColumns.includes(col));
+
+        if (columnNames.length === 0) {
+            throw new Error('No matching columns found between file and table');
+        }
 
         // Auto-adjust batch size to avoid MySQL placeholder limit (65535)
         const maxPlaceholders = 65535;
@@ -657,6 +665,7 @@ async function processFileToDatabase(fileId, taskId, database, table, batchSize,
                 const formattedRow = {};
                 columnNames.forEach(col => {
                     let val = row[col];
+                    // If date column, format it
                     if (dateColumns.includes(col) && val !== null && val !== '') {
                         val = formatToMysql(val);
                     }

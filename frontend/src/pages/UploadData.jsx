@@ -61,6 +61,10 @@ const UploadData = () => {
     const [polling, setPolling] = useState(false);
     const [uploadError, setUploadError] = useState(null);
 
+    // Active tasks state (for reconnection after browser refresh)
+    const [activeTasks, setActiveTasks] = useState([]);
+    const [activeTaskStatuses, setActiveTaskStatuses] = useState({});
+
     // Constants
     const MAX_FILE_SIZE_MB = 500; // Increased for two-phase
     const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
@@ -90,6 +94,11 @@ const UploadData = () => {
             pollProgress();
         }
     }, [taskId]);
+
+    // Check for active tasks on mount (reconnection after browser refresh)
+    useEffect(() => {
+        checkActiveTasks();
+    }, []);
 
     const loadDatabases = async () => {
         if (!selectedConnection) return;
@@ -130,6 +139,55 @@ const UploadData = () => {
         } catch (error) {
             console.error('Failed to load pending files:', error);
         }
+    };
+
+    // Check for active tasks and start polling their progress
+    const checkActiveTasks = async () => {
+        try {
+            const res = await uploadAPI.getActiveTasks();
+            const tasks = res.data || [];
+            setActiveTasks(tasks);
+
+            // Start polling for each active task
+            if (tasks.length > 0) {
+                setCurrentPhase(2); // Switch to phase 2 to show progress
+                tasks.forEach(task => {
+                    pollActiveTask(task.taskId);
+                });
+                toast.info(`${tasks.length} proses aktif ditemukan`);
+            }
+        } catch (error) {
+            console.error('Failed to check active tasks:', error);
+        }
+    };
+
+    // Poll progress for an active task (from reconnection)
+    const pollActiveTask = (activeTaskId) => {
+        const interval = setInterval(async () => {
+            try {
+                const res = await uploadAPI.getProgress(activeTaskId);
+                setActiveTaskStatuses(prev => ({
+                    ...prev,
+                    [activeTaskId]: res.data
+                }));
+
+                if (res.data.status === 'completed' || res.data.status === 'error') {
+                    clearInterval(interval);
+                    // Remove from active tasks
+                    setActiveTasks(prev => prev.filter(t => t.taskId !== activeTaskId));
+                    loadPendingFiles();
+
+                    if (res.data.status === 'completed') {
+                        toast.success(`Proses selesai: ${res.data.insertedRows} baris dimasukkan`);
+                    } else {
+                        toast.error('Proses gagal');
+                    }
+                }
+            } catch (error) {
+                clearInterval(interval);
+                setActiveTasks(prev => prev.filter(t => t.taskId !== activeTaskId));
+            }
+        }, 1500);
     };
 
     const handleFileSelect = (e) => {
@@ -523,6 +581,57 @@ const UploadData = () => {
             {/* Phase 2: Process to Database */}
             {currentPhase === 2 && (
                 <div className="space-y-6">
+                    {/* Active Processing Tasks (for reconnection) */}
+                    {activeTasks.length > 0 && (
+                        <div className="card p-6 border border-brand-500/30 bg-brand-500/5">
+                            <h2 className="text-lg font-semibold text-white flex items-center gap-2 mb-4">
+                                <Loader2 className="w-5 h-5 text-brand-400 animate-spin" />
+                                Proses Aktif ({activeTasks.length})
+                            </h2>
+                            <div className="space-y-4">
+                                {activeTasks.map((task) => {
+                                    const taskStatus = activeTaskStatuses[task.taskId] || task;
+                                    const percent = taskStatus.totalRows > 0
+                                        ? Math.round((taskStatus.processedRows / taskStatus.totalRows) * 100)
+                                        : 0;
+                                    return (
+                                        <div key={task.taskId} className="p-4 bg-gray-800/50 rounded-lg space-y-3">
+                                            <div className="flex items-center justify-between">
+                                                <div className="flex items-center gap-3">
+                                                    <FileSpreadsheet className="w-6 h-6 text-brand-400" />
+                                                    <div>
+                                                        <p className="font-medium text-white text-sm">{task.fileName}</p>
+                                                        <p className="text-xs text-gray-500">
+                                                            → {task.database}.{task.table}
+                                                        </p>
+                                                    </div>
+                                                </div>
+                                                <span className="text-2xl font-bold text-brand-400">{percent}%</span>
+                                            </div>
+                                            <div className="h-2 bg-gray-700 rounded-full overflow-hidden">
+                                                <div
+                                                    className="h-full bg-gradient-to-r from-brand-600 to-brand-400 transition-all duration-300 rounded-full"
+                                                    style={{ width: `${percent}%` }}
+                                                />
+                                            </div>
+                                            <div className="flex justify-between text-xs text-gray-500">
+                                                <span>{taskStatus.processedRows?.toLocaleString() || 0} / {taskStatus.totalRows?.toLocaleString() || 0} baris</span>
+                                                <span>
+                                                    ✓ {taskStatus.insertedRows?.toLocaleString() || 0} inserted
+                                                    {taskStatus.updatedRows > 0 && ` • ↻ ${taskStatus.updatedRows?.toLocaleString()} updated`}
+                                                    {taskStatus.skippedRows > 0 && ` • ○ ${taskStatus.skippedRows?.toLocaleString()} skipped`}
+                                                </span>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                            <p className="text-xs text-gray-500 mt-4 text-center">
+                                💡 Proses berjalan di server. Browser dapat ditutup kapan saja.
+                            </p>
+                        </div>
+                    )}
+
                     {/* Pending Files List */}
                     <div className="card p-6">
                         <div className="flex items-center justify-between mb-4">

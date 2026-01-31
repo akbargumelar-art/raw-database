@@ -162,14 +162,50 @@ const upload = multer({
     limits: { fileSize: 200 * 1024 * 1024 } // 200MB limit
 });
 
-// Store upload progress in memory (use Redis in production)
+// Store upload progress in memory AND persist to disk
 const uploadProgress = new Map();
 
 // Store pending files metadata (files uploaded but not yet processed)
 const pendingFiles = new Map();
 
-// Helper: Save pending files to disk for persistence
+// Helper: Paths for persistent storage
 const PENDING_FILES_PATH = path.join(__dirname, '../uploads/.pending.json');
+const PROGRESS_FILE_PATH = path.join(__dirname, '../uploads/.progress.json');
+
+// =====================================================
+// PROGRESS PERSISTENCE FUNCTIONS
+// =====================================================
+
+const saveProgress = () => {
+    try {
+        const data = Array.from(uploadProgress.entries());
+        fs.writeFileSync(PROGRESS_FILE_PATH, JSON.stringify(data, null, 2));
+    } catch (err) {
+        console.error('Failed to save progress:', err);
+    }
+};
+
+const loadProgress = () => {
+    try {
+        if (fs.existsSync(PROGRESS_FILE_PATH)) {
+            const data = JSON.parse(fs.readFileSync(PROGRESS_FILE_PATH, 'utf8'));
+            data.forEach(([key, value]) => {
+                // Only load if not too old (max 24 hours)
+                const age = Date.now() - parseInt(key);
+                if (age < 24 * 60 * 60 * 1000) {
+                    uploadProgress.set(key, value);
+                }
+            });
+            console.log(`Loaded ${uploadProgress.size} progress entries`);
+        }
+    } catch (err) {
+        console.error('Failed to load progress:', err);
+    }
+};
+
+// =====================================================
+// PENDING FILES PERSISTENCE FUNCTIONS  
+// =====================================================
 
 const savePendingFiles = () => {
     try {
@@ -184,21 +220,34 @@ const loadPendingFiles = () => {
     try {
         if (fs.existsSync(PENDING_FILES_PATH)) {
             const data = JSON.parse(fs.readFileSync(PENDING_FILES_PATH, 'utf8'));
+            let resetCount = 0;
             data.forEach(([key, value]) => {
                 // Only add if file still exists
                 if (fs.existsSync(value.filePath)) {
+                    // Reset "processing" to "pending" on server restart
+                    // (process was interrupted by restart)
+                    if (value.status === 'processing') {
+                        value.status = 'pending';
+                        value.taskId = null;
+                        resetCount++;
+                    }
                     pendingFiles.set(key, value);
                 }
             });
             console.log(`Loaded ${pendingFiles.size} pending files`);
+            if (resetCount > 0) {
+                console.log(`Reset ${resetCount} stuck "processing" files to "pending"`);
+                savePendingFiles();
+            }
         }
     } catch (err) {
         console.error('Failed to load pending files:', err);
     }
 };
 
-// Load pending files on startup
+// Load on startup
 loadPendingFiles();
+loadProgress();
 
 // =====================================================
 // TWO-PHASE UPLOAD ENDPOINTS
@@ -274,6 +323,40 @@ router.get('/pending', auth, (req, res) => {
     }
 });
 
+// Get list of active processing tasks (for reconnection after browser refresh)
+router.get('/active-tasks', auth, (req, res) => {
+    try {
+        const activeTasks = [];
+        uploadProgress.forEach((progress, taskId) => {
+            // Only show processing tasks (not completed/error)
+            if (progress.status === 'processing') {
+                activeTasks.push({
+                    taskId,
+                    fileId: progress.fileId,
+                    fileName: progress.fileName,
+                    database: progress.database,
+                    table: progress.table,
+                    totalRows: progress.totalRows,
+                    processedRows: progress.processedRows,
+                    insertedRows: progress.insertedRows,
+                    skippedRows: progress.skippedRows,
+                    updatedRows: progress.updatedRows,
+                    startedAt: progress.startedAt,
+                    status: progress.status
+                });
+            }
+        });
+
+        // Sort by startedAt descending (newest first)
+        activeTasks.sort((a, b) => new Date(b.startedAt) - new Date(a.startedAt));
+
+        res.json(activeTasks);
+    } catch (error) {
+        console.error('Get active tasks error:', error);
+        res.status(500).json({ error: 'Failed to get active tasks.' });
+    }
+});
+
 // Phase 2: Process pending file to database
 router.post('/process/:fileId', auth, async (req, res) => {
     const { fileId } = req.params;
@@ -321,8 +404,10 @@ router.post('/process/:fileId', auth, async (req, res) => {
             insertedRows: 0,
             skippedRows: 0,
             updatedRows: 0,
-            errors: []
+            errors: [],
+            startedAt: new Date().toISOString()
         });
+        saveProgress();
 
         // Send immediate response
         res.json({
@@ -540,17 +625,20 @@ async function processFileToDatabase(fileId, taskId, database, table, batchSize,
 
             processed += batch.length;
 
-            // Update progress
+            // Update progress and save to disk
             const progress = uploadProgress.get(taskId);
             progress.processedRows = processed;
             progress.insertedRows = inserted;
             progress.skippedRows = skipped;
             progress.updatedRows = updated;
+            saveProgress();
         }
 
         // Mark complete
         const progress = uploadProgress.get(taskId);
         progress.status = 'completed';
+        progress.completedAt = new Date().toISOString();
+        saveProgress();
 
         // Update file status
         fileInfo.status = 'completed';
@@ -566,8 +654,11 @@ async function processFileToDatabase(fileId, taskId, database, table, batchSize,
 
         console.log(`[Phase 2 ${taskId}] Completed: ${inserted} inserted, ${updated} updated, ${skipped} skipped`);
 
-        // Keep progress for 10 minutes
-        setTimeout(() => uploadProgress.delete(taskId), 10 * 60 * 1000);
+        // Keep progress for 30 minutes then delete (longer for reconnection)
+        setTimeout(() => {
+            uploadProgress.delete(taskId);
+            saveProgress();
+        }, 30 * 60 * 1000);
 
     } catch (error) {
         console.error(`[Phase 2 ${taskId}] Error:`, error);
@@ -575,6 +666,7 @@ async function processFileToDatabase(fileId, taskId, database, table, batchSize,
         if (progress) {
             progress.status = 'error';
             progress.errors.push({ error: error.message });
+            saveProgress();
         }
 
         // Update file status

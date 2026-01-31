@@ -141,6 +141,9 @@ export const uploadAPI = {
         }, { skipLoading: true });
     },
 
+    // Get active processing tasks (for reconnection after browser refresh)
+    getActiveTasks: () => api.get('/upload/active-tasks', { skipLoading: true }),
+
     // Delete pending file
     deletePendingFile: (fileId) => api.delete(`/upload/file/${fileId}`, { skipLoading: true })
 };

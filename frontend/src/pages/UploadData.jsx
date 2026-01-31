@@ -435,17 +435,59 @@ const UploadData = () => {
 
                                 {/* Upload Progress */}
                                 {uploading && (
-                                    <div>
-                                        <div className="flex justify-between text-sm text-gray-400 mb-1">
-                                            <span>Uploading ke server...</span>
-                                            <span>{uploadProgress}%</span>
+                                    <div className="space-y-4">
+                                        {/* Circular Progress */}
+                                        <div className="flex flex-col items-center py-4">
+                                            <div className="relative w-28 h-28">
+                                                <svg className="w-28 h-28 transform -rotate-90">
+                                                    <circle
+                                                        cx="56"
+                                                        cy="56"
+                                                        r="48"
+                                                        stroke="currentColor"
+                                                        strokeWidth="8"
+                                                        fill="transparent"
+                                                        className="text-gray-800"
+                                                    />
+                                                    <circle
+                                                        cx="56"
+                                                        cy="56"
+                                                        r="48"
+                                                        stroke="currentColor"
+                                                        strokeWidth="8"
+                                                        fill="transparent"
+                                                        strokeDasharray={`${2 * Math.PI * 48}`}
+                                                        strokeDashoffset={`${2 * Math.PI * 48 * (1 - uploadProgress / 100)}`}
+                                                        strokeLinecap="round"
+                                                        className="text-brand-500 transition-all duration-300"
+                                                    />
+                                                </svg>
+                                                <div className="absolute inset-0 flex flex-col items-center justify-center">
+                                                    <span className="text-2xl font-bold text-white">
+                                                        {uploadProgress}%
+                                                    </span>
+                                                    <span className="text-xs text-gray-500">Uploading</span>
+                                                </div>
+                                            </div>
                                         </div>
-                                        <div className="h-2 bg-gray-800 rounded-full overflow-hidden">
-                                            <div
-                                                className="h-full bg-brand-500 transition-all duration-300"
-                                                style={{ width: `${uploadProgress}%` }}
-                                            />
+
+                                        {/* Linear Progress Bar */}
+                                        <div className="space-y-1">
+                                            <div className="flex justify-between text-sm">
+                                                <span className="text-gray-400">Uploading ke server...</span>
+                                                <span className="text-white font-medium">{formatFileSize(file.size * uploadProgress / 100)} / {formatFileSize(file.size)}</span>
+                                            </div>
+                                            <div className="h-3 bg-gray-800 rounded-full overflow-hidden">
+                                                <div
+                                                    className="h-full bg-gradient-to-r from-brand-600 to-brand-400 transition-all duration-300 rounded-full"
+                                                    style={{ width: `${uploadProgress}%` }}
+                                                />
+                                            </div>
                                         </div>
+
+                                        <p className="text-xs text-gray-500 text-center">
+                                            💡 Jangan tutup browser sampai upload selesai
+                                        </p>
                                     </div>
                                 )}
 

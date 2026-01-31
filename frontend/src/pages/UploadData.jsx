@@ -11,10 +11,16 @@ import {
     Loader2,
     CheckCircle,
     XCircle,
-    BarChart3,
     X,
     Download,
-    AlertTriangle
+    AlertTriangle,
+    Clock,
+    Trash2,
+    Play,
+    RefreshCw,
+    CloudUpload,
+    HardDrive,
+    ArrowRight
 } from 'lucide-react';
 
 const UploadData = () => {
@@ -22,35 +28,48 @@ const UploadData = () => {
     const { selectedConnection } = useConnection();
     const fileInputRef = useRef(null);
 
+    // Phase management
+    const [currentPhase, setCurrentPhase] = useState(1); // 1 = Upload to VPS, 2 = Process to DB
+
+    // Database/Table selection
     const [databases, setDatabases] = useState([]);
     const [tables, setTables] = useState([]);
     const [selectedDb, setSelectedDb] = useState('');
     const [selectedTable, setSelectedTable] = useState('');
-    const [file, setFile] = useState(null);
     const [batchSize, setBatchSize] = useState(5000);
 
     // Duplicate handling
-    const [duplicateMode, setDuplicateMode] = useState('update'); // 'skip' | 'update' | 'error' - default to update
+    const [duplicateMode, setDuplicateMode] = useState('update');
     const [tableColumns, setTableColumns] = useState([]);
     const [duplicateCheckFields, setDuplicateCheckFields] = useState([]);
     const [primaryKeys, setPrimaryKeys] = useState([]);
 
+    // File state
+    const [file, setFile] = useState(null);
+    const [pendingFiles, setPendingFiles] = useState([]);
+    const [selectedPendingFile, setSelectedPendingFile] = useState(null);
+
     // Upload state
     const [uploading, setUploading] = useState(false);
     const [uploadProgress, setUploadProgress] = useState(0);
+    const [uploadedFileId, setUploadedFileId] = useState(null);
+
+    // Processing state
+    const [processing, setProcessing] = useState(false);
     const [taskId, setTaskId] = useState(null);
     const [status, setStatus] = useState(null);
     const [polling, setPolling] = useState(false);
     const [uploadError, setUploadError] = useState(null);
 
     // Constants
-    const MAX_FILE_SIZE_MB = 200;
+    const MAX_FILE_SIZE_MB = 500; // Increased for two-phase
     const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
     const ALLOWED_EXTENSIONS = ['.csv', '.xlsx', '.xls'];
 
     useEffect(() => {
         if (selectedConnection) {
             loadDatabases();
+            loadPendingFiles();
         }
     }, [selectedConnection]);
 
@@ -59,6 +78,12 @@ const UploadData = () => {
             loadTables(selectedDb);
         }
     }, [selectedDb]);
+
+    useEffect(() => {
+        if (selectedDb && selectedTable) {
+            loadTableColumns(selectedDb, selectedTable);
+        }
+    }, [selectedDb, selectedTable]);
 
     useEffect(() => {
         if (taskId && !polling) {
@@ -91,7 +116,6 @@ const UploadData = () => {
         try {
             const res = await databaseAPI.getTableInfo(db, table, selectedConnection.id);
             setTableColumns(res.data.columns || []);
-            // Extract primary keys
             const pkFields = (res.data.columns || []).filter(c => c.key === 'PRI').map(c => c.name);
             setPrimaryKeys(pkFields);
         } catch (error) {
@@ -99,21 +123,23 @@ const UploadData = () => {
         }
     };
 
-    useEffect(() => {
-        if (selectedDb && selectedTable) {
-            loadTableColumns(selectedDb, selectedTable);
+    const loadPendingFiles = async () => {
+        try {
+            const res = await uploadAPI.getPendingUploads();
+            setPendingFiles(res.data || []);
+        } catch (error) {
+            console.error('Failed to load pending files:', error);
         }
-    }, [selectedDb, selectedTable]);
+    };
 
     const handleFileSelect = (e) => {
         const selectedFile = e.target.files?.[0];
         if (!selectedFile) return;
 
-        // Reset previous errors
         setUploadError(null);
         setStatus(null);
+        setUploadedFileId(null);
 
-        // Validate file extension
         const ext = '.' + selectedFile.name.split('.').pop().toLowerCase();
         if (!ALLOWED_EXTENSIONS.includes(ext)) {
             setUploadError({
@@ -124,18 +150,107 @@ const UploadData = () => {
             return;
         }
 
-        // Validate file size
         if (selectedFile.size > MAX_FILE_SIZE_BYTES) {
             const fileSizeMB = (selectedFile.size / 1024 / 1024).toFixed(2);
             setUploadError({
                 type: 'FILE_TOO_LARGE',
                 message: `File terlalu besar: ${fileSizeMB} MB`,
-                details: `Batas maksimal ukuran file adalah ${MAX_FILE_SIZE_MB} MB. Coba pecah file menjadi bagian yang lebih kecil.`
+                details: `Batas maksimal ukuran file adalah ${MAX_FILE_SIZE_MB} MB.`
             });
             return;
         }
 
         setFile(selectedFile);
+    };
+
+    // Phase 1: Upload file to VPS
+    const handleUploadToVPS = async () => {
+        if (!file) {
+            toast.error('Pilih file terlebih dahulu');
+            return;
+        }
+
+        setUploading(true);
+        setUploadProgress(0);
+        setUploadError(null);
+
+        try {
+            const res = await uploadAPI.uploadFile(file, (progressEvent) => {
+                const progress = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+                setUploadProgress(progress);
+            });
+
+            setUploadedFileId(res.data.fileId);
+            toast.success('File berhasil diupload ke server! Siap untuk diproses.');
+            loadPendingFiles();
+
+            // Auto switch to phase 2
+            setCurrentPhase(2);
+            setSelectedPendingFile(res.data.file);
+
+        } catch (error) {
+            console.error('Upload error:', error);
+            const errorDetails = getErrorDetails(error);
+            setUploadError(errorDetails);
+            toast.error(errorDetails.message);
+        } finally {
+            setUploading(false);
+        }
+    };
+
+    // Phase 2: Process file to database
+    const handleProcessToDatabase = async (fileId = null, fileName = null) => {
+        const targetFileId = fileId || uploadedFileId || selectedPendingFile?.id;
+
+        if (!targetFileId) {
+            toast.error('Pilih file yang akan diproses');
+            return;
+        }
+
+        if (!selectedDb || !selectedTable) {
+            toast.error('Pilih database dan table terlebih dahulu');
+            return;
+        }
+
+        setProcessing(true);
+        setStatus(null);
+        setUploadError(null);
+
+        try {
+            const res = await uploadAPI.processFile(
+                targetFileId,
+                selectedDb,
+                selectedTable,
+                batchSize,
+                duplicateMode,
+                duplicateCheckFields,
+                selectedConnection?.id
+            );
+
+            setTaskId(res.data.taskId);
+            toast.info('Proses dimulai! Browser dapat ditutup dengan aman.');
+
+        } catch (error) {
+            console.error('Process error:', error);
+            const msg = error.response?.data?.error || 'Gagal memulai proses';
+            toast.error(msg);
+            setProcessing(false);
+        }
+    };
+
+    const handleDeletePendingFile = async (fileId) => {
+        if (!confirm('Hapus file ini?')) return;
+
+        try {
+            await uploadAPI.deletePendingFile(fileId);
+            toast.success('File dihapus');
+            loadPendingFiles();
+            if (selectedPendingFile?.fileId === fileId) {
+                setSelectedPendingFile(null);
+            }
+        } catch (error) {
+            toast.error(error.response?.data?.error || 'Gagal menghapus file');
+        }
     };
 
     const pollProgress = async () => {
@@ -150,12 +265,13 @@ const UploadData = () => {
                 if (res.data.status === 'completed' || res.data.status === 'error') {
                     clearInterval(interval);
                     setPolling(false);
-                    setUploading(false);
+                    setProcessing(false);
 
                     if (res.data.status === 'completed') {
-                        toast.success(`Upload complete! ${res.data.insertedRows} rows inserted.`);
+                        toast.success(`Selesai! ${res.data.insertedRows} baris dimasukkan.`);
+                        loadPendingFiles();
                     } else {
-                        toast.error('Upload failed');
+                        toast.error('Proses gagal');
                     }
                 }
             } catch (error) {
@@ -166,120 +282,20 @@ const UploadData = () => {
     };
 
     const getErrorDetails = (error) => {
-        // Network error (no response from server)
         if (!error.response) {
             if (error.code === 'ECONNABORTED' || error.message?.includes('timeout')) {
-                return {
-                    type: 'TIMEOUT',
-                    message: 'Koneksi timeout',
-                    details: 'Upload memakan waktu terlalu lama. Pastikan koneksi internet stabil dan coba lagi dengan file yang lebih kecil.'
-                };
+                return { type: 'TIMEOUT', message: 'Koneksi timeout', details: 'Upload memakan waktu terlalu lama.' };
             }
-            if (error.message?.includes('Network Error')) {
-                return {
-                    type: 'NETWORK',
-                    message: 'Koneksi terputus',
-                    details: 'Tidak dapat terhubung ke server. Periksa koneksi internet atau server mungkin sedang tidak aktif.'
-                };
-            }
-            return {
-                type: 'NETWORK',
-                message: 'Error jaringan',
-                details: error.message || 'Terjadi kesalahan koneksi. Silakan coba lagi.'
-            };
+            return { type: 'NETWORK', message: 'Error jaringan', details: error.message || 'Terjadi kesalahan koneksi.' };
         }
 
         const status = error.response?.status;
-        const serverMessage = error.response?.data?.error || error.response?.data?.message;
+        const serverMessage = error.response?.data?.error;
 
-        // Specific HTTP status codes
         switch (status) {
-            case 413:
-                return {
-                    type: 'FILE_TOO_LARGE',
-                    message: 'File terlalu besar untuk server',
-                    details: 'Server menolak file karena ukurannya melebihi batas. Hubungi administrator untuk meningkatkan limit di Nginx/server.'
-                };
-            case 408:
-                return {
-                    type: 'TIMEOUT',
-                    message: 'Request timeout di server',
-                    details: 'Server memakan waktu terlalu lama untuk memproses file. Coba dengan file yang lebih kecil.'
-                };
-            case 502:
-            case 503:
-            case 504:
-                return {
-                    type: 'SERVER_ERROR',
-                    message: `Server error (${status})`,
-                    details: 'Server sedang overload atau tidak tersedia. Coba lagi dalam beberapa menit.'
-                };
-            case 500:
-                return {
-                    type: 'SERVER_ERROR',
-                    message: 'Internal server error',
-                    details: serverMessage || 'Terjadi kesalahan di server saat memproses file.'
-                };
-            case 400:
-                return {
-                    type: 'BAD_REQUEST',
-                    message: 'Request tidak valid',
-                    details: serverMessage || 'Data yang dikirim tidak sesuai format.'
-                };
-            default:
-                return {
-                    type: 'UNKNOWN',
-                    message: serverMessage || `Error (${status})`,
-                    details: 'Terjadi kesalahan yang tidak diketahui. Silakan coba lagi.'
-                };
-        }
-    };
-
-    const handleUpload = async () => {
-        if (!selectedDb || !selectedTable || !file) {
-            toast.error('Pilih database, table, dan file terlebih dahulu');
-            return;
-        }
-
-        // Re-validate file size before upload
-        if (file.size > MAX_FILE_SIZE_BYTES) {
-            const fileSizeMB = (file.size / 1024 / 1024).toFixed(2);
-            setUploadError({
-                type: 'FILE_TOO_LARGE',
-                message: `File terlalu besar: ${fileSizeMB} MB`,
-                details: `Batas maksimal adalah ${MAX_FILE_SIZE_MB} MB.`
-            });
-            return;
-        }
-
-        setUploading(true);
-        setUploadProgress(0);
-        setStatus(null);
-        setUploadError(null);
-
-        try {
-            const res = await uploadAPI.upload(
-                selectedDb,
-                selectedTable,
-                file,
-                batchSize,
-                duplicateMode,
-                duplicateCheckFields,
-                (progressEvent) => {
-                    const progress = Math.round((progressEvent.loaded * 100) / progressEvent.total);
-                    setUploadProgress(progress);
-                },
-                selectedConnection?.id
-            );
-
-            setTaskId(res.data.taskId);
-            toast.info('Upload dimulai, sedang memproses...');
-        } catch (error) {
-            console.error('Upload error:', error);
-            const errorDetails = getErrorDetails(error);
-            setUploadError(errorDetails);
-            toast.error(errorDetails.message);
-            setUploading(false);
+            case 413: return { type: 'FILE_TOO_LARGE', message: 'File terlalu besar', details: 'Server menolak file.' };
+            case 504: return { type: 'TIMEOUT', message: 'Gateway timeout', details: 'Server tidak merespon.' };
+            default: return { type: 'UNKNOWN', message: serverMessage || 'Error', details: 'Terjadi kesalahan.' };
         }
     };
 
@@ -289,14 +305,15 @@ const UploadData = () => {
         setTaskId(null);
         setUploadProgress(0);
         setUploadError(null);
-        if (fileInputRef.current) {
-            fileInputRef.current.value = '';
-        }
+        setUploadedFileId(null);
+        setSelectedPendingFile(null);
+        setProcessing(false);
+        if (fileInputRef.current) fileInputRef.current.value = '';
     };
 
     const handleDownloadTemplate = async () => {
         if (!selectedDb || !selectedTable) {
-            toast.error('Please select database and table first');
+            toast.error('Pilih database dan table terlebih dahulu');
             return;
         }
 
@@ -313,6 +330,19 @@ const UploadData = () => {
         }
     };
 
+    const formatFileSize = (bytes) => {
+        if (bytes < 1024) return bytes + ' B';
+        if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+        return (bytes / 1024 / 1024).toFixed(2) + ' MB';
+    };
+
+    const formatDate = (dateStr) => {
+        return new Date(dateStr).toLocaleString('id-ID', {
+            day: '2-digit', month: 'short', year: 'numeric',
+            hour: '2-digit', minute: '2-digit'
+        });
+    };
+
     const progressPercent = status?.totalRows
         ? Math.round((status.processedRows / status.totalRows) * 100)
         : 0;
@@ -323,363 +353,476 @@ const UploadData = () => {
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
                     <h1 className="text-2xl font-bold text-white">Upload Data</h1>
-                    <p className="text-gray-400 mt-1">Import CSV or Excel files with batch processing</p>
+                    <p className="text-gray-400 mt-1">Two-Phase Upload: File disimpan di server, proses berjalan di background</p>
                 </div>
                 <div className="w-full md:w-72">
                     <ConnectionSelector />
                 </div>
             </div>
 
-            {/* Configuration */}
-            <div className="card p-6 space-y-6">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div>
-                        <label className="block text-sm font-medium text-gray-400 mb-2">
-                            <Database className="w-4 h-4 inline mr-2" />
-                            Database
-                        </label>
-                        <select
-                            value={selectedDb}
-                            onChange={(e) => { setSelectedDb(e.target.value); setSelectedTable(''); }}
-                            className="select-dark w-full"
-                            disabled={uploading}
-                        >
-                            <option value="">Select database...</option>
-                            {databases.map(db => (
-                                <option key={db} value={db}>{db}</option>
-                            ))}
-                        </select>
-                    </div>
-
-                    <div>
-                        <label className="block text-sm font-medium text-gray-400 mb-2">
-                            <Table2 className="w-4 h-4 inline mr-2" />
-                            Table
-                        </label>
-                        <div className="flex gap-2">
-                            <select
-                                value={selectedTable}
-                                onChange={(e) => setSelectedTable(e.target.value)}
-                                className="select-dark w-full"
-                                disabled={!selectedDb || uploading}
-                            >
-                                <option value="">Select table...</option>
-                                {tables.map(t => (
-                                    <option key={t} value={t}>{t}</option>
-                                ))}
-                            </select>
-                            <button
-                                onClick={handleDownloadTemplate}
-                                disabled={!selectedDb || !selectedTable || uploading}
-                                className="btn-secondary px-4 flex items-center gap-2 whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed"
-                                title="Download Excel template for this table"
-                            >
-                                <Download className="w-4 h-4" />
-                                Template
-                            </button>
-                        </div>
-                        {selectedTable && (
-                            <p className="text-xs text-gray-500 mt-1">
-                                💡 Download template to see correct column format
-                            </p>
-                        )}
-                    </div>
+            {/* Phase Indicator */}
+            <div className="card p-4">
+                <div className="flex items-center justify-center gap-4">
+                    <button
+                        onClick={() => setCurrentPhase(1)}
+                        className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-all ${currentPhase === 1
+                            ? 'bg-brand-500 text-white'
+                            : 'bg-gray-800 text-gray-400 hover:text-white'
+                            }`}
+                    >
+                        <CloudUpload className="w-5 h-5" />
+                        <span className="font-medium">Phase 1: Upload ke Server</span>
+                    </button>
+                    <ArrowRight className="w-5 h-5 text-gray-600" />
+                    <button
+                        onClick={() => setCurrentPhase(2)}
+                        className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-all ${currentPhase === 2
+                            ? 'bg-brand-500 text-white'
+                            : 'bg-gray-800 text-gray-400 hover:text-white'
+                            }`}
+                    >
+                        <HardDrive className="w-5 h-5" />
+                        <span className="font-medium">Phase 2: Proses ke Database</span>
+                    </button>
                 </div>
+            </div>
 
-                <div>
-                    <label className="block text-sm font-medium text-gray-400 mb-2">
-                        Batch Size (rows per batch)
-                    </label>
-                    <input
-                        type="number"
-                        value={batchSize}
-                        onChange={(e) => setBatchSize(parseInt(e.target.value) || 5000)}
-                        min={100}
-                        max={10000}
-                        className="input-dark w-48"
-                        disabled={uploading}
-                    />
-                    <p className="text-xs text-gray-500 mt-1">Recommended: 5000 for large files</p>
-                </div>
+            {/* Phase 1: Upload to VPS */}
+            {currentPhase === 1 && (
+                <div className="space-y-6">
+                    <div className="card p-6">
+                        <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+                            <CloudUpload className="w-5 h-5 text-brand-400" />
+                            Phase 1: Upload File ke Server
+                        </h2>
+                        <p className="text-gray-400 text-sm mb-4">
+                            File akan disimpan di server terlebih dahulu. Anda bisa menutup browser setelah upload selesai.
+                        </p>
 
-                {/* Duplicate Handling */}
-                <div className="space-y-4 pt-4 border-t border-gray-800">
-                    <h3 className="text-sm font-medium text-gray-300">Duplicate Prevention</h3>
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <div>
-                            <label className="block text-sm font-medium text-gray-400 mb-2">
-                                Duplicate Handling Mode
+                        {/* File Upload Area */}
+                        {!file ? (
+                            <label className="flex flex-col items-center justify-center h-48 border-2 border-dashed border-gray-700 rounded-xl cursor-pointer hover:border-brand-500 transition-colors">
+                                <FileSpreadsheet className="w-12 h-12 text-gray-500 mb-4" />
+                                <p className="text-gray-300 font-medium">Drop file atau klik untuk memilih</p>
+                                <p className="text-sm text-gray-500 mt-1">CSV, XLSX, XLS (max {MAX_FILE_SIZE_MB}MB)</p>
+                                <input
+                                    ref={fileInputRef}
+                                    type="file"
+                                    accept=".csv,.xlsx,.xls"
+                                    onChange={handleFileSelect}
+                                    className="hidden"
+                                    disabled={uploading}
+                                />
                             </label>
-                            <select
-                                value={duplicateMode}
-                                onChange={(e) => setDuplicateMode(e.target.value)}
-                                className="select-dark w-full"
-                                disabled={uploading}
-                            >
-                                <option value="skip">Skip duplicates (INSERT IGNORE)</option>
-                                <option value="update">Update duplicates (ON DUPLICATE KEY UPDATE)</option>
-                                <option value="error">Error on duplicates (abort)</option>
-                            </select>
-                            <p className="text-xs text-gray-500 mt-1">
-                                {duplicateMode === 'skip' && 'Duplicate rows will be ignored'}
-                                {duplicateMode === 'update' && 'Duplicate rows will be updated with new data'}
-                                {duplicateMode === 'error' && 'Upload will abort if duplicates found'}
-                            </p>
-                        </div>
-
-                        <div>
-                            <label className="block text-sm font-medium text-gray-400 mb-2">
-                                Check Fields for Duplicates (optional)
-                            </label>
-                            {primaryKeys.length > 0 && (
-                                <div className="mb-2 p-2 bg-brand-500/10 border border-brand-500/30 rounded text-xs">
-                                    <span className="text-brand-400 font-medium">PRIMARY KEY:</span>
-                                    <span className="text-gray-300 ml-2">{primaryKeys.join(', ')}</span>
+                        ) : (
+                            <div className="space-y-4">
+                                <div className="flex items-center justify-between p-4 bg-gray-800/50 rounded-lg">
+                                    <div className="flex items-center gap-4">
+                                        <div className="w-12 h-12 rounded-lg bg-brand-500/20 flex items-center justify-center">
+                                            <FileSpreadsheet className="w-6 h-6 text-brand-400" />
+                                        </div>
+                                        <div>
+                                            <p className="font-medium text-white">{file.name}</p>
+                                            <p className="text-sm text-gray-500">{formatFileSize(file.size)}</p>
+                                        </div>
+                                    </div>
+                                    {!uploading && (
+                                        <button onClick={resetUpload} className="p-2 rounded hover:bg-gray-700 text-gray-400 hover:text-white">
+                                            <X className="w-5 h-5" />
+                                        </button>
+                                    )}
                                 </div>
-                            )}
-                            <select
-                                multiple
-                                value={duplicateCheckFields}
-                                onChange={(e) => setDuplicateCheckFields(Array.from(e.target.selectedOptions, opt => opt.value))}
-                                className="select-dark w-full h-24"
-                                disabled={uploading || tableColumns.length === 0}
-                            >
-                                {tableColumns.map(col => (
-                                    <option key={col.name} value={col.name}>
-                                        {col.name} ({col.type}){col.key === 'PRI' ? ' 🔑 PRIMARY' : ''}
-                                    </option>
-                                ))}
-                            </select>
-                            <p className="text-xs text-gray-500 mt-1">
-                                Hold Ctrl/Cmd to select multiple fields. Empty = use PRIMARY KEY only.
-                            </p>
-                        </div>
-                    </div>
-                </div>
-            </div>
 
-            {/* File Upload */}
-            <div className="card p-6">
-                {!file ? (
-                    <label className="flex flex-col items-center justify-center h-48 border-2 border-dashed border-gray-700 rounded-xl cursor-pointer hover:border-brand-500 transition-colors">
-                        <FileSpreadsheet className="w-12 h-12 text-gray-500 mb-4" />
-                        <p className="text-gray-300 font-medium">Drop your file here or click to browse</p>
-                        <p className="text-sm text-gray-500 mt-1">Supports CSV, XLSX, XLS (up to 200MB)</p>
-                        <input
-                            ref={fileInputRef}
-                            type="file"
-                            accept=".csv,.xlsx,.xls"
-                            onChange={handleFileSelect}
-                            className="hidden"
-                            disabled={uploading}
-                        />
-                    </label>
-                ) : (
-                    <div className="flex items-center justify-between p-4 bg-gray-800/50 rounded-lg">
-                        <div className="flex items-center gap-4">
-                            <div className="w-12 h-12 rounded-lg bg-brand-500/20 flex items-center justify-center">
-                                <FileSpreadsheet className="w-6 h-6 text-brand-400" />
+                                {/* Upload Progress */}
+                                {uploading && (
+                                    <div>
+                                        <div className="flex justify-between text-sm text-gray-400 mb-1">
+                                            <span>Uploading ke server...</span>
+                                            <span>{uploadProgress}%</span>
+                                        </div>
+                                        <div className="h-2 bg-gray-800 rounded-full overflow-hidden">
+                                            <div
+                                                className="h-full bg-brand-500 transition-all duration-300"
+                                                style={{ width: `${uploadProgress}%` }}
+                                            />
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* Upload Button */}
+                                {!uploading && !uploadedFileId && (
+                                    <button
+                                        onClick={handleUploadToVPS}
+                                        className="btn-primary flex items-center gap-2 w-full justify-center"
+                                    >
+                                        <Upload className="w-5 h-5" />
+                                        Upload ke Server
+                                    </button>
+                                )}
+
+                                {/* Success Message */}
+                                {uploadedFileId && (
+                                    <div className="p-4 bg-green-950/30 border border-green-500/30 rounded-lg">
+                                        <div className="flex items-center gap-2 text-green-400">
+                                            <CheckCircle className="w-5 h-5" />
+                                            <span className="font-medium">File berhasil diupload!</span>
+                                        </div>
+                                        <p className="text-sm text-gray-400 mt-2">
+                                            Klik "Phase 2" untuk memproses file ke database.
+                                        </p>
+                                    </div>
+                                )}
                             </div>
-                            <div>
-                                <p className="font-medium text-white">{file.name}</p>
-                                <p className="text-sm text-gray-500">{(file.size / 1024 / 1024).toFixed(2)} MB</p>
-                            </div>
-                        </div>
-                        {!uploading && (
-                            <button onClick={resetUpload} className="p-2 rounded hover:bg-gray-700 text-gray-400 hover:text-white">
-                                <X className="w-5 h-5" />
-                            </button>
                         )}
                     </div>
-                )}
-            </div>
+                </div>
+            )}
 
-            {/* Upload Error Display */}
+            {/* Phase 2: Process to Database */}
+            {currentPhase === 2 && (
+                <div className="space-y-6">
+                    {/* Pending Files List */}
+                    <div className="card p-6">
+                        <div className="flex items-center justify-between mb-4">
+                            <h2 className="text-lg font-semibold text-white flex items-center gap-2">
+                                <Clock className="w-5 h-5 text-yellow-400" />
+                                File Pending ({pendingFiles.length})
+                            </h2>
+                            <button
+                                onClick={loadPendingFiles}
+                                className="btn-secondary p-2"
+                                title="Refresh"
+                            >
+                                <RefreshCw className="w-4 h-4" />
+                            </button>
+                        </div>
+
+                        {pendingFiles.length === 0 ? (
+                            <div className="text-center py-8 text-gray-500">
+                                <FileSpreadsheet className="w-12 h-12 mx-auto mb-2 opacity-50" />
+                                <p>Tidak ada file pending</p>
+                                <button
+                                    onClick={() => setCurrentPhase(1)}
+                                    className="text-brand-400 hover:underline mt-2"
+                                >
+                                    Upload file baru
+                                </button>
+                            </div>
+                        ) : (
+                            <div className="space-y-2 max-h-64 overflow-y-auto">
+                                {pendingFiles.map((pf) => (
+                                    <div
+                                        key={pf.fileId}
+                                        className={`flex items-center justify-between p-3 rounded-lg cursor-pointer transition-all ${selectedPendingFile?.fileId === pf.fileId
+                                            ? 'bg-brand-500/20 border border-brand-500/30'
+                                            : 'bg-gray-800/50 hover:bg-gray-800'
+                                            }`}
+                                        onClick={() => setSelectedPendingFile(pf)}
+                                    >
+                                        <div className="flex items-center gap-3">
+                                            <FileSpreadsheet className="w-8 h-8 text-brand-400" />
+                                            <div>
+                                                <p className="font-medium text-white text-sm">{pf.name}</p>
+                                                <p className="text-xs text-gray-500">
+                                                    {formatFileSize(pf.size)} • {formatDate(pf.uploadedAt)}
+                                                </p>
+                                            </div>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            {pf.status === 'processing' && (
+                                                <span className="text-xs bg-yellow-500/20 text-yellow-400 px-2 py-1 rounded">
+                                                    Processing...
+                                                </span>
+                                            )}
+                                            {pf.status === 'pending' && (
+                                                <button
+                                                    onClick={(e) => { e.stopPropagation(); handleDeletePendingFile(pf.fileId); }}
+                                                    className="p-1 rounded hover:bg-red-500/20 text-gray-400 hover:text-red-400"
+                                                >
+                                                    <Trash2 className="w-4 h-4" />
+                                                </button>
+                                            )}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Database/Table Selection */}
+                    <div className="card p-6 space-y-6">
+                        <h2 className="text-lg font-semibold text-white flex items-center gap-2">
+                            <HardDrive className="w-5 h-5 text-brand-400" />
+                            Phase 2: Proses ke Database
+                        </h2>
+
+                        {selectedPendingFile && (
+                            <div className="p-3 bg-brand-500/10 border border-brand-500/30 rounded-lg">
+                                <span className="text-sm text-gray-400">File dipilih: </span>
+                                <span className="text-brand-400 font-medium">{selectedPendingFile.name}</span>
+                            </div>
+                        )}
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div>
+                                <label className="block text-sm font-medium text-gray-400 mb-2">
+                                    <Database className="w-4 h-4 inline mr-2" />
+                                    Database
+                                </label>
+                                <select
+                                    value={selectedDb}
+                                    onChange={(e) => { setSelectedDb(e.target.value); setSelectedTable(''); }}
+                                    className="select-dark w-full"
+                                    disabled={processing}
+                                >
+                                    <option value="">Pilih database...</option>
+                                    {databases.map(db => (
+                                        <option key={db} value={db}>{db}</option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            <div>
+                                <label className="block text-sm font-medium text-gray-400 mb-2">
+                                    <Table2 className="w-4 h-4 inline mr-2" />
+                                    Table
+                                </label>
+                                <div className="flex gap-2">
+                                    <select
+                                        value={selectedTable}
+                                        onChange={(e) => setSelectedTable(e.target.value)}
+                                        className="select-dark w-full"
+                                        disabled={!selectedDb || processing}
+                                    >
+                                        <option value="">Pilih table...</option>
+                                        {tables.map(t => (
+                                            <option key={t} value={t}>{t}</option>
+                                        ))}
+                                    </select>
+                                    <button
+                                        onClick={handleDownloadTemplate}
+                                        disabled={!selectedDb || !selectedTable}
+                                        className="btn-secondary px-4 flex items-center gap-2 whitespace-nowrap disabled:opacity-50"
+                                        title="Download template"
+                                    >
+                                        <Download className="w-4 h-4" />
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div>
+                            <label className="block text-sm font-medium text-gray-400 mb-2">
+                                Batch Size
+                            </label>
+                            <input
+                                type="number"
+                                value={batchSize}
+                                onChange={(e) => setBatchSize(parseInt(e.target.value) || 5000)}
+                                min={100}
+                                max={10000}
+                                className="input-dark w-48"
+                                disabled={processing}
+                            />
+                        </div>
+
+                        {/* Duplicate Handling */}
+                        <div className="space-y-4 pt-4 border-t border-gray-800">
+                            <h3 className="text-sm font-medium text-gray-300">Duplicate Prevention</h3>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-400 mb-2">Mode</label>
+                                    <select
+                                        value={duplicateMode}
+                                        onChange={(e) => setDuplicateMode(e.target.value)}
+                                        className="select-dark w-full"
+                                        disabled={processing}
+                                    >
+                                        <option value="skip">Skip duplicates</option>
+                                        <option value="update">Update duplicates</option>
+                                        <option value="error">Error on duplicates</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-400 mb-2">Check Fields</label>
+                                    {primaryKeys.length > 0 && (
+                                        <div className="mb-2 p-2 bg-brand-500/10 border border-brand-500/30 rounded text-xs">
+                                            <span className="text-brand-400">PRIMARY KEY: </span>
+                                            <span className="text-gray-300">{primaryKeys.join(', ')}</span>
+                                        </div>
+                                    )}
+                                    <select
+                                        multiple
+                                        value={duplicateCheckFields}
+                                        onChange={(e) => setDuplicateCheckFields(Array.from(e.target.selectedOptions, opt => opt.value))}
+                                        className="select-dark w-full h-20"
+                                        disabled={processing || tableColumns.length === 0}
+                                    >
+                                        {tableColumns.map(col => (
+                                            <option key={col.name} value={col.name}>
+                                                {col.name} ({col.type}){col.key === 'PRI' ? ' 🔑' : ''}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Process Button */}
+                        <button
+                            onClick={() => handleProcessToDatabase(selectedPendingFile?.fileId)}
+                            disabled={processing || !selectedPendingFile || !selectedDb || !selectedTable}
+                            className="btn-primary flex items-center gap-2 w-full justify-center disabled:opacity-50"
+                        >
+                            {processing ? (
+                                <>
+                                    <Loader2 className="w-5 h-5 animate-spin" />
+                                    Processing...
+                                </>
+                            ) : (
+                                <>
+                                    <Play className="w-5 h-5" />
+                                    Proses ke Database
+                                </>
+                            )}
+                        </button>
+
+                        <p className="text-xs text-gray-500 text-center">
+                            💡 Browser dapat ditutup setelah proses dimulai. Data akan tetap diproses di server.
+                        </p>
+                    </div>
+
+                    {/* Progress */}
+                    {(processing || status) && (
+                        <div className="card p-6 space-y-4">
+                            <div className="flex items-center gap-3">
+                                {status?.status === 'completed' ? (
+                                    <CheckCircle className="w-6 h-6 text-green-400" />
+                                ) : status?.status === 'error' ? (
+                                    <XCircle className="w-6 h-6 text-red-400" />
+                                ) : (
+                                    <Loader2 className="w-6 h-6 text-brand-400 animate-spin" />
+                                )}
+                                <span className="font-medium text-white">
+                                    {status?.status === 'completed' ? 'Selesai!' :
+                                        status?.status === 'error' ? 'Gagal' : 'Memproses...'}
+                                </span>
+                            </div>
+
+                            {status && (
+                                <>
+                                    {/* Large Percentage Display */}
+                                    <div className="flex flex-col items-center py-6">
+                                        <div className="relative w-32 h-32">
+                                            {/* Background circle */}
+                                            <svg className="w-32 h-32 transform -rotate-90">
+                                                <circle
+                                                    cx="64"
+                                                    cy="64"
+                                                    r="56"
+                                                    stroke="currentColor"
+                                                    strokeWidth="8"
+                                                    fill="transparent"
+                                                    className="text-gray-800"
+                                                />
+                                                <circle
+                                                    cx="64"
+                                                    cy="64"
+                                                    r="56"
+                                                    stroke="currentColor"
+                                                    strokeWidth="8"
+                                                    fill="transparent"
+                                                    strokeDasharray={`${2 * Math.PI * 56}`}
+                                                    strokeDashoffset={`${2 * Math.PI * 56 * (1 - progressPercent / 100)}`}
+                                                    strokeLinecap="round"
+                                                    className={`transition-all duration-500 ${status.status === 'completed' ? 'text-green-500' :
+                                                            status.status === 'error' ? 'text-red-500' : 'text-brand-500'
+                                                        }`}
+                                                />
+                                            </svg>
+                                            {/* Percentage text in center */}
+                                            <div className="absolute inset-0 flex flex-col items-center justify-center">
+                                                <span className={`text-3xl font-bold ${status.status === 'completed' ? 'text-green-400' :
+                                                        status.status === 'error' ? 'text-red-400' : 'text-white'
+                                                    }`}>
+                                                    {progressPercent}%
+                                                </span>
+                                                <span className="text-xs text-gray-500">
+                                                    {status.status === 'completed' ? 'Complete' :
+                                                        status.status === 'error' ? 'Error' : 'Processing'}
+                                                </span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Linear Progress Bar */}
+                                    <div className="space-y-2">
+                                        <div className="flex justify-between text-sm">
+                                            <span className="text-gray-400">Progress</span>
+                                            <span className="text-white font-medium">
+                                                {status.processedRows?.toLocaleString()} / {status.totalRows?.toLocaleString()} rows
+                                            </span>
+                                        </div>
+                                        <div className="h-3 bg-gray-800 rounded-full overflow-hidden">
+                                            <div
+                                                className={`h-full transition-all duration-500 rounded-full ${status.status === 'completed' ? 'bg-green-500' :
+                                                        status.status === 'error' ? 'bg-red-500' : 'bg-gradient-to-r from-brand-600 to-brand-400'
+                                                    }`}
+                                                style={{ width: `${progressPercent}%` }}
+                                            />
+                                        </div>
+                                    </div>
+
+                                    <div className="grid grid-cols-3 gap-4 pt-4 border-t border-gray-800">
+                                        <div className="text-center">
+                                            <p className="text-2xl font-bold text-white">{status.processedRows || 0}</p>
+                                            <p className="text-sm text-gray-500">Processed</p>
+                                        </div>
+                                        <div className="text-center">
+                                            <p className="text-2xl font-bold text-green-400">{status.insertedRows || 0}</p>
+                                            <p className="text-sm text-gray-500">Inserted</p>
+                                        </div>
+                                        <div className="text-center">
+                                            <p className="text-2xl font-bold text-yellow-400">{status.skippedRows || 0}</p>
+                                            <p className="text-sm text-gray-500">Skipped</p>
+                                        </div>
+                                    </div>
+
+                                    {status?.errors?.length > 0 && (
+                                        <div className="p-4 bg-red-950/30 border border-red-500/30 rounded-lg">
+                                            <p className="text-sm font-medium text-red-400 mb-2">Errors:</p>
+                                            {status.errors.map((err, i) => (
+                                                <p key={i} className="text-sm text-red-300">{err.error}</p>
+                                            ))}
+                                        </div>
+                                    )}
+                                </>
+                            )}
+
+                            {status?.status === 'completed' && (
+                                <button onClick={resetUpload} className="btn-secondary w-full">
+                                    Upload File Lain
+                                </button>
+                            )}
+                        </div>
+                    )}
+                </div>
+            )}
+
+            {/* Error Display */}
             {uploadError && (
                 <div className="card p-6 border-2 border-red-500/50 bg-red-950/20">
                     <div className="flex items-start gap-4">
-                        <div className="w-12 h-12 rounded-lg bg-red-500/20 flex items-center justify-center flex-shrink-0">
-                            <AlertTriangle className="w-6 h-6 text-red-400" />
-                        </div>
+                        <AlertTriangle className="w-6 h-6 text-red-400 flex-shrink-0" />
                         <div className="flex-1">
-                            <h3 className="text-lg font-semibold text-red-400 mb-1">
-                                {uploadError.message}
-                            </h3>
-                            <p className="text-gray-300 text-sm mb-3">
-                                {uploadError.details}
-                            </p>
-                            <div className="flex items-center gap-2 text-xs text-gray-500">
-                                <span className="px-2 py-1 bg-gray-800 rounded">
-                                    Error Type: {uploadError.type}
-                                </span>
-                            </div>
+                            <h3 className="text-lg font-semibold text-red-400">{uploadError.message}</h3>
+                            <p className="text-gray-300 text-sm mt-1">{uploadError.details}</p>
                         </div>
-                        <button
-                            onClick={() => setUploadError(null)}
-                            className="p-2 rounded hover:bg-gray-700 text-gray-400 hover:text-white"
-                        >
+                        <button onClick={() => setUploadError(null)} className="text-gray-400 hover:text-white">
                             <X className="w-5 h-5" />
                         </button>
                     </div>
-
-                    {/* Suggestions based on error type */}
-                    {uploadError.type === 'FILE_TOO_LARGE' && (
-                        <div className="mt-4 p-3 bg-gray-800/50 rounded-lg">
-                            <p className="text-sm text-gray-400 font-medium mb-2">💡 Saran:</p>
-                            <ul className="text-sm text-gray-500 list-disc list-inside space-y-1">
-                                <li>Pecah file CSV menjadi beberapa bagian yang lebih kecil</li>
-                                <li>Gunakan tool seperti Excel untuk split file</li>
-                                <li>Hubungi admin untuk meningkatkan limit upload</li>
-                            </ul>
-                        </div>
-                    )}
-
-                    {uploadError.type === 'NETWORK' && (
-                        <div className="mt-4 p-3 bg-gray-800/50 rounded-lg">
-                            <p className="text-sm text-gray-400 font-medium mb-2">💡 Saran:</p>
-                            <ul className="text-sm text-gray-500 list-disc list-inside space-y-1">
-                                <li>Periksa koneksi internet Anda</li>
-                                <li>Refresh halaman dan coba lagi</li>
-                                <li>Pastikan server sedang aktif</li>
-                            </ul>
-                        </div>
-                    )}
-
-                    {uploadError.type === 'TIMEOUT' && (
-                        <div className="mt-4 p-3 bg-gray-800/50 rounded-lg">
-                            <p className="text-sm text-gray-400 font-medium mb-2">💡 Saran:</p>
-                            <ul className="text-sm text-gray-500 list-disc list-inside space-y-1">
-                                <li>Gunakan file yang lebih kecil (&lt;100MB)</li>
-                                <li>Pastikan koneksi internet stabil</li>
-                                <li>Coba upload di waktu yang berbeda</li>
-                            </ul>
-                        </div>
-                    )}
-
-                    <div className="mt-4 flex gap-2">
-                        <button
-                            onClick={resetUpload}
-                            className="btn-secondary text-sm"
-                        >
-                            Pilih File Lain
-                        </button>
-                    </div>
                 </div>
-            )}
-
-            {/* Progress */}
-            {(uploading || status) && (
-                <div className="card p-6 space-y-4">
-                    <div className="flex items-center gap-3">
-                        {status?.status === 'completed' ? (
-                            <CheckCircle className="w-6 h-6 text-green-400" />
-                        ) : status?.status === 'error' ? (
-                            <XCircle className="w-6 h-6 text-red-400" />
-                        ) : (
-                            <Loader2 className="w-6 h-6 text-brand-400 animate-spin" />
-                        )}
-                        <span className="font-medium text-white">
-                            {status?.status === 'completed' ? 'Upload Complete' :
-                                status?.status === 'error' ? 'Upload Failed' :
-                                    uploadProgress < 100 ? 'Uploading file...' : 'Processing data...'}
-                        </span>
-                    </div>
-
-                    {/* Upload Progress Bar */}
-                    {uploadProgress < 100 && (
-                        <div>
-                            <div className="flex justify-between text-sm text-gray-400 mb-1">
-                                <span>Uploading</span>
-                                <span>{uploadProgress}%</span>
-                            </div>
-                            <div className="h-2 bg-gray-800 rounded-full overflow-hidden">
-                                <div
-                                    className="h-full bg-brand-500 transition-all duration-300"
-                                    style={{ width: `${uploadProgress}%` }}
-                                />
-                            </div>
-                        </div>
-                    )}
-
-                    {/* Processing Progress */}
-                    {status && uploadProgress >= 100 && (
-                        <div>
-                            <div className="flex justify-between text-sm text-gray-400 mb-1">
-                                <span>Processing rows</span>
-                                <span>{status.processedRows} / {status.totalRows}</span>
-                            </div>
-                            <div className="h-2 bg-gray-800 rounded-full overflow-hidden">
-                                <div
-                                    className="h-full bg-green-500 transition-all duration-300"
-                                    style={{ width: `${progressPercent}%` }}
-                                />
-                            </div>
-                        </div>
-                    )}
-
-                    {/* Stats */}
-                    {status && (
-                        <div className="grid grid-cols-3 gap-4 pt-4 border-t border-gray-800">
-                            <div className="text-center">
-                                <p className="text-2xl font-bold text-white">{status.processedRows || 0}</p>
-                                <p className="text-sm text-gray-500">Processed</p>
-                            </div>
-                            <div className="text-center">
-                                <p className="text-2xl font-bold text-green-400">{status.insertedRows || 0}</p>
-                                <p className="text-sm text-gray-500">Inserted</p>
-                            </div>
-                            <div className="text-center">
-                                <p className="text-2xl font-bold text-yellow-400">{status.skippedRows || 0}</p>
-                                <p className="text-sm text-gray-500">Skipped</p>
-                            </div>
-                            {status.updatedRows > 0 && (
-                                <div className="text-center">
-                                    <p className="text-2xl font-bold text-blue-400">{status.updatedRows || 0}</p>
-                                    <p className="text-sm text-gray-500">Updated</p>
-                                </div>
-                            )}
-                        </div>
-                    )}
-
-                    {/* Errors */}
-                    {status?.errors?.length > 0 && (
-                        <div className="p-4 bg-red-950/30 border border-red-500/30 rounded-lg">
-                            <p className="text-sm font-medium text-red-400 mb-2">Errors:</p>
-                            {status.errors.map((err, i) => (
-                                <p key={i} className="text-sm text-red-300">{err.error}</p>
-                            ))}
-                        </div>
-                    )}
-                </div>
-            )}
-
-            {/* Upload Button */}
-            {file && !status?.status && (
-                <button
-                    onClick={handleUpload}
-                    disabled={uploading || !selectedDb || !selectedTable}
-                    className="btn-primary flex items-center gap-2"
-                >
-                    {uploading ? (
-                        <>
-                            <Loader2 className="w-5 h-5 animate-spin" />
-                            Uploading...
-                        </>
-                    ) : (
-                        <>
-                            <Upload className="w-5 h-5" />
-                            Start Upload
-                        </>
-                    )}
-                </button>
-            )}
-
-            {/* New Upload Button */}
-            {status?.status === 'completed' && (
-                <button onClick={resetUpload} className="btn-secondary">
-                    Upload Another File
-                </button>
             )}
         </div>
     );

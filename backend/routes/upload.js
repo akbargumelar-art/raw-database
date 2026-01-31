@@ -40,6 +40,448 @@ const upload = multer({
 // Store upload progress in memory (use Redis in production)
 const uploadProgress = new Map();
 
+// Store pending files metadata (files uploaded but not yet processed)
+const pendingFiles = new Map();
+
+// Helper: Save pending files to disk for persistence
+const PENDING_FILES_PATH = path.join(__dirname, '../uploads/.pending.json');
+
+const savePendingFiles = () => {
+    try {
+        const data = Array.from(pendingFiles.entries());
+        fs.writeFileSync(PENDING_FILES_PATH, JSON.stringify(data, null, 2));
+    } catch (err) {
+        console.error('Failed to save pending files:', err);
+    }
+};
+
+const loadPendingFiles = () => {
+    try {
+        if (fs.existsSync(PENDING_FILES_PATH)) {
+            const data = JSON.parse(fs.readFileSync(PENDING_FILES_PATH, 'utf8'));
+            data.forEach(([key, value]) => {
+                // Only add if file still exists
+                if (fs.existsSync(value.filePath)) {
+                    pendingFiles.set(key, value);
+                }
+            });
+            console.log(`Loaded ${pendingFiles.size} pending files`);
+        }
+    } catch (err) {
+        console.error('Failed to load pending files:', err);
+    }
+};
+
+// Load pending files on startup
+loadPendingFiles();
+
+// =====================================================
+// TWO-PHASE UPLOAD ENDPOINTS
+// =====================================================
+
+// Phase 1: Upload file only (store to VPS)
+router.post('/file', auth, upload.single('file'), async (req, res) => {
+    try {
+        if (!req.file) {
+            return res.status(400).json({ error: 'No file uploaded.' });
+        }
+
+        const fileId = `file_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        const fileInfo = {
+            fileId,
+            originalName: req.file.originalname,
+            filePath: req.file.path,
+            size: req.file.size,
+            mimetype: req.file.mimetype,
+            uploadedAt: new Date().toISOString(),
+            uploadedBy: req.user.id,
+            status: 'pending' // pending | processing | completed | error
+        };
+
+        pendingFiles.set(fileId, fileInfo);
+        savePendingFiles();
+
+        console.log(`[Phase 1] File uploaded: ${fileInfo.originalName} (${(fileInfo.size / 1024 / 1024).toFixed(2)} MB) -> ${fileId}`);
+
+        res.json({
+            success: true,
+            fileId,
+            message: 'File uploaded successfully. Ready for processing.',
+            file: {
+                id: fileId,
+                name: fileInfo.originalName,
+                size: fileInfo.size,
+                uploadedAt: fileInfo.uploadedAt
+            }
+        });
+
+    } catch (error) {
+        console.error('File upload error:', error);
+        res.status(500).json({ error: 'Failed to upload file.' });
+    }
+});
+
+// Get list of pending files
+router.get('/pending', auth, (req, res) => {
+    try {
+        const userFiles = [];
+        pendingFiles.forEach((file, fileId) => {
+            // Only show files for this user (or all for admin)
+            if (file.uploadedBy === req.user.id || req.user.role === 'admin') {
+                userFiles.push({
+                    fileId,
+                    name: file.originalName,
+                    size: file.size,
+                    uploadedAt: file.uploadedAt,
+                    status: file.status,
+                    taskId: file.taskId || null
+                });
+            }
+        });
+
+        // Sort by uploadedAt descending
+        userFiles.sort((a, b) => new Date(b.uploadedAt) - new Date(a.uploadedAt));
+
+        res.json(userFiles);
+    } catch (error) {
+        console.error('Get pending files error:', error);
+        res.status(500).json({ error: 'Failed to get pending files.' });
+    }
+});
+
+// Phase 2: Process pending file to database
+router.post('/process/:fileId', auth, async (req, res) => {
+    const { fileId } = req.params;
+    const taskId = Date.now().toString();
+
+    try {
+        const fileInfo = pendingFiles.get(fileId);
+        if (!fileInfo) {
+            return res.status(404).json({ error: 'File not found.' });
+        }
+
+        if (!fs.existsSync(fileInfo.filePath)) {
+            pendingFiles.delete(fileId);
+            savePendingFiles();
+            return res.status(404).json({ error: 'File no longer exists on server.' });
+        }
+
+        if (fileInfo.status === 'processing') {
+            return res.status(400).json({ error: 'File is already being processed.', taskId: fileInfo.taskId });
+        }
+
+        const { database, table, batchSize = 5000, duplicateMode = 'skip', duplicateCheckFields = [], connectionId } = req.body;
+
+        if (!database || !table) {
+            return res.status(400).json({ error: 'Database and table are required.' });
+        }
+
+        // Update file status
+        fileInfo.status = 'processing';
+        fileInfo.taskId = taskId;
+        fileInfo.database = database;
+        fileInfo.table = table;
+        pendingFiles.set(fileId, fileInfo);
+        savePendingFiles();
+
+        // Initialize progress
+        uploadProgress.set(taskId, {
+            status: 'processing',
+            fileId,
+            fileName: fileInfo.originalName,
+            database,
+            table,
+            totalRows: 0,
+            processedRows: 0,
+            insertedRows: 0,
+            skippedRows: 0,
+            updatedRows: 0,
+            errors: []
+        });
+
+        // Send immediate response
+        res.json({
+            success: true,
+            taskId,
+            message: 'Processing started. Browser can be closed safely.',
+            file: {
+                id: fileId,
+                name: fileInfo.originalName
+            }
+        });
+
+        // Process in background
+        processFileToDatabase(fileId, taskId, database, table, batchSize, duplicateMode, duplicateCheckFields, connectionId);
+
+    } catch (error) {
+        console.error('Process file error:', error);
+        res.status(500).json({ error: 'Failed to start processing.' });
+    }
+});
+
+// Delete pending file
+router.delete('/file/:fileId', auth, (req, res) => {
+    try {
+        const { fileId } = req.params;
+        const fileInfo = pendingFiles.get(fileId);
+
+        if (!fileInfo) {
+            return res.status(404).json({ error: 'File not found.' });
+        }
+
+        // Check ownership
+        if (fileInfo.uploadedBy !== req.user.id && req.user.role !== 'admin') {
+            return res.status(403).json({ error: 'Not authorized to delete this file.' });
+        }
+
+        if (fileInfo.status === 'processing') {
+            return res.status(400).json({ error: 'Cannot delete file while processing.' });
+        }
+
+        // Delete physical file
+        if (fs.existsSync(fileInfo.filePath)) {
+            fs.unlinkSync(fileInfo.filePath);
+        }
+
+        pendingFiles.delete(fileId);
+        savePendingFiles();
+
+        console.log(`[Delete] Pending file removed: ${fileInfo.originalName}`);
+
+        res.json({ success: true, message: 'File deleted.' });
+
+    } catch (error) {
+        console.error('Delete file error:', error);
+        res.status(500).json({ error: 'Failed to delete file.' });
+    }
+});
+
+// Background processing function
+async function processFileToDatabase(fileId, taskId, database, table, batchSize, duplicateMode, duplicateCheckFieldsInput, connectionId) {
+    const fileInfo = pendingFiles.get(fileId);
+    if (!fileInfo) return;
+
+    const filePath = fileInfo.filePath;
+    const ext = path.extname(fileInfo.originalName).toLowerCase();
+
+    try {
+        // Get database connection
+        let pool;
+        if (connectionId) {
+            pool = await getConnectionPool(parseInt(connectionId), database);
+        } else {
+            pool = await getDbConnection(database);
+        }
+
+        // Parse duplicate check fields
+        let duplicateCheckFields = [];
+        if (typeof duplicateCheckFieldsInput === 'string') {
+            try {
+                duplicateCheckFields = JSON.parse(duplicateCheckFieldsInput);
+            } catch (e) {
+                duplicateCheckFields = [];
+            }
+        } else if (Array.isArray(duplicateCheckFieldsInput)) {
+            duplicateCheckFields = duplicateCheckFieldsInput;
+        }
+
+        // Get table structure for date columns
+        const [columns] = await pool.execute(`DESCRIBE \`${table}\``);
+        const dateColumns = columns
+            .filter(c => ['date', 'datetime', 'timestamp'].some(t => c.Type.toLowerCase().includes(t)))
+            .map(c => c.Field);
+
+        columns.forEach(c => {
+            if (isDateColumn(c.Field) && !dateColumns.includes(c.Field)) {
+                dateColumns.push(c.Field);
+            }
+        });
+
+        let rows = [];
+
+        // Parse file
+        console.log(`[Phase 2 ${taskId}] Parsing file: ${fileInfo.originalName}`);
+
+        if (ext === '.csv') {
+            rows = await parseCsv(filePath);
+        } else {
+            const workbook = xlsx.readFile(filePath, {
+                type: 'file',
+                dense: false,
+                cellDates: true,
+                cellNF: false,
+                cellText: false
+            });
+            const sheetName = workbook.SheetNames[0];
+            const sheet = workbook.Sheets[sheetName];
+            if (!sheet) {
+                throw new Error(`Sheet "${sheetName}" is empty`);
+            }
+            rows = xlsx.utils.sheet_to_json(sheet, { defval: null });
+        }
+
+        if (!rows || rows.length === 0) {
+            throw new Error('No data found in file');
+        }
+
+        console.log(`[Phase 2 ${taskId}] Parsed ${rows.length} rows`);
+
+        // Update progress
+        uploadProgress.get(taskId).totalRows = rows.length;
+
+        // Process in batches
+        const columnNames = Object.keys(rows[0] || {});
+        let processed = 0, inserted = 0, skipped = 0, updated = 0;
+
+        for (let i = 0; i < rows.length; i += batchSize) {
+            const batch = rows.slice(i, i + batchSize);
+
+            // Format dates
+            const formattedBatch = batch.map(row => {
+                const formattedRow = {};
+                columnNames.forEach(col => {
+                    let val = row[col];
+                    if (dateColumns.includes(col) && val !== null && val !== '') {
+                        val = formatToMysql(val);
+                    }
+                    formattedRow[col] = val;
+                });
+                return formattedRow;
+            });
+
+            let rowsToInsert = formattedBatch;
+
+            // Duplicate check logic
+            if (duplicateCheckFields.length > 0) {
+                const checkFieldsStr = duplicateCheckFields.map(f => `\`${f}\``).join(', ');
+                const checkValues = [];
+                duplicateCheckFields.forEach(field => {
+                    const values = formattedBatch.map(r => r[field]).filter(v => v !== null && v !== undefined);
+                    if (values.length > 0) {
+                        checkValues.push({ field, values: [...new Set(values)] });
+                    }
+                });
+
+                if (checkValues.length > 0) {
+                    const whereConditions = checkValues.map(cv =>
+                        `\`${cv.field}\` IN (${cv.values.map(() => '?').join(',')})`
+                    ).join(' OR ');
+                    const queryParams = checkValues.flatMap(cv => cv.values);
+
+                    const [existingRows] = await pool.execute(
+                        `SELECT ${checkFieldsStr} FROM \`${table}\` WHERE ${whereConditions}`,
+                        queryParams
+                    );
+
+                    const existingSet = new Set(
+                        existingRows.map(row =>
+                            duplicateCheckFields.map(f => String(row[f])).join('||')
+                        )
+                    );
+
+                    if (duplicateMode === 'error' && existingSet.size > 0) {
+                        throw new Error(`Duplicate rows detected: ${existingSet.size} existing records`);
+                    }
+
+                    if (duplicateMode === 'skip') {
+                        rowsToInsert = formattedBatch.filter(row => {
+                            const key = duplicateCheckFields.map(f => String(row[f])).join('||');
+                            return !existingSet.has(key);
+                        });
+                        skipped += (formattedBatch.length - rowsToInsert.length);
+                    }
+                }
+            }
+
+            if (rowsToInsert.length > 0) {
+                const values = rowsToInsert.map(row => columnNames.map(col => row[col]));
+                const placeholders = values.map(() => `(${columnNames.map(() => '?').join(', ')})`).join(', ');
+                const flatValues = values.flat();
+
+                let sql;
+                if (duplicateMode === 'update' && duplicateCheckFields.length > 0) {
+                    const updateClause = columnNames
+                        .filter(c => !duplicateCheckFields.includes(c))
+                        .map(c => `\`${c}\` = VALUES(\`${c}\`)`)
+                        .join(', ');
+                    sql = `INSERT INTO \`${table}\` (${columnNames.map(c => `\`${c}\``).join(', ')}) VALUES ${placeholders}`;
+                    if (updateClause) sql += ` ON DUPLICATE KEY UPDATE ${updateClause}`;
+                } else {
+                    sql = `INSERT IGNORE INTO \`${table}\` (${columnNames.map(c => `\`${c}\``).join(', ')}) VALUES ${placeholders}`;
+                }
+
+                try {
+                    const [result] = await pool.execute(sql, flatValues);
+                    if (duplicateMode === 'update') {
+                        const affected = result.affectedRows;
+                        const changed = result.changedRows || 0;
+                        inserted += (affected - changed) / 2;
+                        updated += changed;
+                    } else {
+                        inserted += result.affectedRows;
+                        skipped += (rowsToInsert.length - result.affectedRows);
+                    }
+                } catch (err) {
+                    console.error('Batch insert error:', err);
+                    uploadProgress.get(taskId).errors.push({
+                        batch: Math.floor(i / batchSize) + 1,
+                        error: err.message
+                    });
+                }
+            }
+
+            processed += batch.length;
+
+            // Update progress
+            const progress = uploadProgress.get(taskId);
+            progress.processedRows = processed;
+            progress.insertedRows = inserted;
+            progress.skippedRows = skipped;
+            progress.updatedRows = updated;
+        }
+
+        // Mark complete
+        const progress = uploadProgress.get(taskId);
+        progress.status = 'completed';
+
+        // Update file status
+        fileInfo.status = 'completed';
+        pendingFiles.set(fileId, fileInfo);
+        savePendingFiles();
+
+        // Cleanup file after successful processing
+        if (fs.existsSync(filePath)) {
+            fs.unlinkSync(filePath);
+        }
+        pendingFiles.delete(fileId);
+        savePendingFiles();
+
+        console.log(`[Phase 2 ${taskId}] Completed: ${inserted} inserted, ${updated} updated, ${skipped} skipped`);
+
+        // Keep progress for 10 minutes
+        setTimeout(() => uploadProgress.delete(taskId), 10 * 60 * 1000);
+
+    } catch (error) {
+        console.error(`[Phase 2 ${taskId}] Error:`, error);
+        const progress = uploadProgress.get(taskId);
+        if (progress) {
+            progress.status = 'error';
+            progress.errors.push({ error: error.message });
+        }
+
+        // Update file status
+        fileInfo.status = 'error';
+        fileInfo.lastError = error.message;
+        pendingFiles.set(fileId, fileInfo);
+        savePendingFiles();
+    }
+}
+
+// =====================================================
+// END TWO-PHASE UPLOAD ENDPOINTS
+// =====================================================
+
+
 // Download Excel template for a table
 router.get('/template/:database/:table', auth, checkDbPermission, async (req, res) => {
     try {
@@ -210,16 +652,57 @@ router.post('/:database/:table', auth, checkDbPermission, upload.single('file'),
 
         let rows = [];
 
-        if (ext === '.csv') {
-            rows = await parseCsv(filePath);
-        } else {
-            const workbook = xlsx.readFile(filePath);
-            const sheetName = workbook.SheetNames[0];
-            const sheet = workbook.Sheets[sheetName];
-            rows = xlsx.utils.sheet_to_json(sheet, { defval: null });
+        try {
+            console.log(`[Upload ${taskId}] Parsing file: ${req.file.originalname} (${(req.file.size / 1024 / 1024).toFixed(2)} MB)`);
+
+            if (ext === '.csv') {
+                rows = await parseCsv(filePath);
+            } else {
+                // For large Excel files, use stream option to reduce memory
+                console.log(`[Upload ${taskId}] Reading Excel file...`);
+                const workbook = xlsx.readFile(filePath, {
+                    type: 'file',
+                    dense: false,  // Use sparse format for large files
+                    cellDates: true,
+                    cellNF: false,
+                    cellText: false
+                });
+
+                console.log(`[Upload ${taskId}] Excel loaded, sheets: ${workbook.SheetNames.join(', ')}`);
+
+                const sheetName = workbook.SheetNames[0];
+                const sheet = workbook.Sheets[sheetName];
+
+                if (!sheet) {
+                    throw new Error(`Sheet "${sheetName}" is empty or could not be read`);
+                }
+
+                rows = xlsx.utils.sheet_to_json(sheet, { defval: null });
+                console.log(`[Upload ${taskId}] Parsed ${rows.length} rows from Excel`);
+            }
+
+            if (!rows || rows.length === 0) {
+                throw new Error('No data found in the file. Please check file format and content.');
+            }
+
+        } catch (parseError) {
+            console.error(`[Upload ${taskId}] Parse error:`, parseError);
+            const progress = uploadProgress.get(taskId);
+            progress.status = 'error';
+            progress.errors.push({
+                error: `Failed to parse file: ${parseError.message}`,
+                phase: 'parsing'
+            });
+
+            // Cleanup file
+            if (fs.existsSync(filePath)) {
+                fs.unlinkSync(filePath);
+            }
+            return; // Exit background processing
         }
 
         // Update total
+        console.log(`[Upload ${taskId}] Total rows to process: ${rows.length}`);
         uploadProgress.get(taskId).totalRows = rows.length;
 
         // Process in batches

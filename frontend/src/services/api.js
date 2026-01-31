@@ -91,6 +91,7 @@ export const dataAPI = {
 
 // Upload API
 export const uploadAPI = {
+    // Original single-phase upload (kept for backward compatibility)
     upload: (database, table, file, batchSize = 5000, duplicateMode = 'skip', duplicateCheckFields = [], onProgress, connectionId) => {
         const formData = new FormData();
         formData.append('file', file);
@@ -108,7 +109,39 @@ export const uploadAPI = {
         api.get(`/upload/template/${database}/${table}`, {
             params: { connectionId },
             responseType: 'blob'
-        })
+        }),
+
+    // =====================================================
+    // TWO-PHASE UPLOAD APIs
+    // =====================================================
+
+    // Phase 1: Upload file to VPS only
+    uploadFile: (file, onProgress) => {
+        const formData = new FormData();
+        formData.append('file', file);
+        return api.post('/upload/file', formData, {
+            headers: { 'Content-Type': 'multipart/form-data' },
+            onUploadProgress: onProgress
+        });
+    },
+
+    // Get list of pending files
+    getPendingUploads: () => api.get('/upload/pending'),
+
+    // Phase 2: Process file to database
+    processFile: (fileId, database, table, batchSize, duplicateMode, duplicateCheckFields, connectionId) => {
+        return api.post(`/upload/process/${fileId}`, {
+            database,
+            table,
+            batchSize,
+            duplicateMode,
+            duplicateCheckFields,
+            connectionId
+        });
+    },
+
+    // Delete pending file
+    deletePendingFile: (fileId) => api.delete(`/upload/file/${fileId}`)
 };
 
 // Lookup API

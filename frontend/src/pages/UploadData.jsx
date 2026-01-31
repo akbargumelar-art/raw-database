@@ -200,7 +200,8 @@ const UploadData = () => {
                     loadPendingFiles();
 
                     if (res.data.status === 'completed') {
-                        toast.success(`Proses selesai: ${res.data.insertedRows} baris dimasukkan`);
+                        const msg = `Selesai! Insert: ${res.data.insertedRows}, Update: ${res.data.updatedRows || 0}, Skip: ${res.data.skippedRows || 0}, Error: ${res.data.errors?.length || 0}`;
+                        toast.success(msg);
                     } else {
                         toast.error('Proses gagal');
                     }
@@ -348,7 +349,8 @@ const UploadData = () => {
                     setProcessing(false);
 
                     if (res.data.status === 'completed') {
-                        toast.success(`Selesai! ${res.data.insertedRows} baris dimasukkan.`);
+                        const msg = `Selesai! Insert: ${res.data.insertedRows}, Update: ${res.data.updatedRows || 0}, Skip: ${res.data.skippedRows || 0}, Error: ${res.data.errors?.length || 0}`;
+                        toast.success(msg);
                         loadPendingFiles();
                     } else {
                         toast.error('Proses gagal');
@@ -636,13 +638,28 @@ const UploadData = () => {
                                                     style={{ width: `${percent}%` }}
                                                 />
                                             </div>
-                                            <div className="flex justify-between text-xs text-gray-500">
-                                                <span>{taskStatus.processedRows?.toLocaleString() || 0} / {taskStatus.totalRows?.toLocaleString() || 0} baris</span>
-                                                <span>
-                                                    ✓ {taskStatus.insertedRows?.toLocaleString() || 0} inserted
-                                                    {taskStatus.updatedRows > 0 && ` • ↻ ${taskStatus.updatedRows?.toLocaleString()} updated`}
-                                                    {taskStatus.skippedRows > 0 && ` • ○ ${taskStatus.skippedRows?.toLocaleString()} skipped`}
-                                                </span>
+                                            <div className="flex justify-between text-xs text-gray-500 mb-2">
+                                                <span>Progress: {taskStatus.processedRows?.toLocaleString() || 0} / {taskStatus.totalRows?.toLocaleString() || 0} baris</span>
+                                            </div>
+                                            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+                                                <div className="bg-gray-900/40 p-2 rounded flex flex-col items-center justify-center">
+                                                    <span className="text-gray-500 mb-1">Inserted</span>
+                                                    <span className="text-green-400 font-bold text-lg">{taskStatus.insertedRows?.toLocaleString() || 0}</span>
+                                                </div>
+                                                <div className="bg-gray-900/40 p-2 rounded flex flex-col items-center justify-center">
+                                                    <span className="text-gray-500 mb-1">Updated</span>
+                                                    <span className="text-blue-400 font-bold text-lg">{taskStatus.updatedRows?.toLocaleString() || 0}</span>
+                                                </div>
+                                                <div className="bg-gray-900/40 p-2 rounded flex flex-col items-center justify-center">
+                                                    <span className="text-gray-500 mb-1">Skipped</span>
+                                                    <span className="text-yellow-400 font-bold text-lg">{taskStatus.skippedRows?.toLocaleString() || 0}</span>
+                                                </div>
+                                                <div className="bg-gray-900/40 p-2 rounded flex flex-col items-center justify-center">
+                                                    <span className="text-gray-500 mb-1">Errors</span>
+                                                    <span className={`font-bold text-lg ${taskStatus.errors?.length > 0 ? 'text-red-400' : 'text-gray-400'}`}>
+                                                        {taskStatus.errors?.length || 0}
+                                                    </span>
+                                                </div>
                                             </div>
                                         </div>
                                     );

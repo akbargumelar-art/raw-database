@@ -480,6 +480,7 @@ router.post('/process/:fileId', auth, async (req, res) => {
         // Initialize progress
         uploadProgress.set(taskId, {
             status: 'processing',
+            phase: 'parsing', // parsing | inserting
             fileId,
             fileName: fileInfo.originalName,
             database,
@@ -604,8 +605,11 @@ async function processFileToDatabase(fileId, taskId, database, table, batchSize,
 
         console.log(`[Phase 2 ${taskId}] Parsed ${rows.length} rows`);
 
-        // Update progress
-        uploadProgress.get(taskId).totalRows = rows.length;
+        // Update progress - move to inserting phase
+        const progress = uploadProgress.get(taskId);
+        progress.totalRows = rows.length;
+        progress.phase = 'inserting';
+        saveProgress();
 
         // Process in batches
         const columnNames = Object.keys(rows[0] || {});
@@ -720,8 +724,8 @@ async function processFileToDatabase(fileId, taskId, database, table, batchSize,
         }
 
         // Mark complete
-        const progress = uploadProgress.get(taskId);
         progress.status = 'completed';
+        progress.phase = 'completed';
         progress.completedAt = new Date().toISOString();
         saveProgress();
 

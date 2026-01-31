@@ -402,8 +402,8 @@ const UploadData = () => {
     };
 
     const progressPercent = status?.totalRows
-        ? Math.round((status.processedRows / status.totalRows) * 100)
-        : 0;
+        ? ((status.processedRows / status.totalRows) * 100).toFixed(2)
+        : '0.00';
 
     return (
         <div className="space-y-6 animate-fade-in">
@@ -893,14 +893,15 @@ const UploadData = () => {
                                             </svg>
                                             {/* Percentage text in center */}
                                             <div className="absolute inset-0 flex flex-col items-center justify-center">
-                                                <span className={`text-3xl font-bold ${status.status === 'completed' ? 'text-green-400' :
+                                                <span className={`text-2xl font-bold ${status.status === 'completed' ? 'text-green-400' :
                                                     status.status === 'error' ? 'text-red-400' : 'text-white'
                                                     }`}>
                                                     {progressPercent}%
                                                 </span>
                                                 <span className="text-xs text-gray-500">
                                                     {status.status === 'completed' ? 'Complete' :
-                                                        status.status === 'error' ? 'Error' : 'Processing'}
+                                                        status.status === 'error' ? 'Error' :
+                                                            status.phase === 'parsing' ? 'Parsing file...' : 'Inserting...'}
                                                 </span>
                                             </div>
                                         </div>

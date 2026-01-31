@@ -637,10 +637,20 @@ async function processFileToDatabase(fileId, taskId, database, table, batchSize,
 
         // Process in batches
         const columnNames = Object.keys(rows[0] || {});
+
+        // Auto-adjust batch size to avoid MySQL placeholder limit (65535)
+        const maxPlaceholders = 65535;
+        const maxBatchForColumns = Math.floor(maxPlaceholders / columnNames.length);
+        const effectiveBatchSize = Math.min(batchSize, maxBatchForColumns);
+
+        if (effectiveBatchSize < batchSize) {
+            console.log(`[Phase 2 ${taskId}] Adjusted batch size from ${batchSize} to ${effectiveBatchSize} (${columnNames.length} columns × ${effectiveBatchSize} = ${columnNames.length * effectiveBatchSize} placeholders)`);
+        }
+
         let processed = 0, inserted = 0, skipped = 0, updated = 0;
 
-        for (let i = 0; i < rows.length; i += batchSize) {
-            const batch = rows.slice(i, i + batchSize);
+        for (let i = 0; i < rows.length; i += effectiveBatchSize) {
+            const batch = rows.slice(i, i + effectiveBatchSize);
 
             // Format dates
             const formattedBatch = batch.map(row => {

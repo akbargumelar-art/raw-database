@@ -135,29 +135,51 @@ const UploadData = () => {
     const loadPendingFiles = async () => {
         try {
             const res = await uploadAPI.getPendingUploads();
-            setPendingFiles(res.data || []);
+            const files = res.data || [];
+            setPendingFiles(files);
+
+            // Auto-detect processing files and start polling their progress
+            const processingFiles = files.filter(f => f.status === 'processing' && f.taskId);
+            if (processingFiles.length > 0) {
+                setCurrentPhase(2);
+                processingFiles.forEach(file => {
+                    // Add to active tasks if not already there
+                    setActiveTasks(prev => {
+                        const exists = prev.find(t => t.taskId === file.taskId);
+                        if (!exists) {
+                            pollActiveTask(file.taskId);
+                            return [...prev, {
+                                taskId: file.taskId,
+                                fileId: file.fileId,
+                                fileName: file.name
+                            }];
+                        }
+                        return prev;
+                    });
+                });
+                toast.info(`${processingFiles.length} proses aktif ditemukan`);
+            }
         } catch (error) {
             console.error('Failed to load pending files:', error);
         }
     };
 
-    // Check for active tasks and start polling their progress
+    // Check for active tasks from backend (backup method)
     const checkActiveTasks = async () => {
         try {
             const res = await uploadAPI.getActiveTasks();
             const tasks = res.data || [];
-            setActiveTasks(tasks);
 
-            // Start polling for each active task
             if (tasks.length > 0) {
-                setCurrentPhase(2); // Switch to phase 2 to show progress
+                setActiveTasks(tasks);
+                setCurrentPhase(2);
                 tasks.forEach(task => {
                     pollActiveTask(task.taskId);
                 });
-                toast.info(`${tasks.length} proses aktif ditemukan`);
             }
         } catch (error) {
-            console.error('Failed to check active tasks:', error);
+            // Endpoint might not exist on old backend, fallback to loadPendingFiles
+            console.log('Active tasks endpoint not available, using pending files fallback');
         }
     };
 

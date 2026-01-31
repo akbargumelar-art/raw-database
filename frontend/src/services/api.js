@@ -127,7 +127,7 @@ export const uploadAPI = {
     },
 
     // Get list of pending files
-    getPendingUploads: () => api.get('/upload/pending'),
+    getPendingUploads: () => api.get('/upload/pending', { skipLoading: true }),
 
     // Phase 2: Process file to database
     processFile: (fileId, database, table, batchSize, duplicateMode, duplicateCheckFields, connectionId) => {
@@ -142,7 +142,7 @@ export const uploadAPI = {
     },
 
     // Delete pending file
-    deletePendingFile: (fileId) => api.delete(`/upload/file/${fileId}`)
+    deletePendingFile: (fileId) => api.delete(`/upload/file/${fileId}`, { skipLoading: true })
 };
 
 // Lookup API

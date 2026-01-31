@@ -3,7 +3,7 @@ const router = express.Router();
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
-const { getDbConnection } = require('../config/db');
+const { getDbConnection, getConnectionPool } = require('../config/db');
 const { auth, adminOnly } = require('../middleware/auth');
 const { checkDbPermission } = require('../middleware/permissions');
 const { analyzeFile } = require('../utils/fileAnalyzer');
@@ -62,6 +62,7 @@ router.post('/analyze', auth, upload.single('file'), async (req, res) => {
 router.post('/:database/create-table', auth, checkDbPermission, async (req, res) => {
     try {
         const { database } = req.params;
+        const { connectionId } = req.query;
         const { tableName, columns } = req.body;
 
         if (!tableName || !columns || columns.length === 0) {
@@ -90,7 +91,7 @@ router.post('/:database/create-table', auth, checkDbPermission, async (req, res)
 
         const sql = `CREATE TABLE \`${tableName}\` (\n  ${columnDefs.join(',\n  ')}\n)`;
 
-        const pool = await getDbConnection(database);
+        const pool = await getConnectionPool(connectionId, database);
         await pool.execute(sql);
 
         res.status(201).json({ message: `Table '${tableName}' created successfully.`, sql });
@@ -104,9 +105,10 @@ router.post('/:database/create-table', auth, checkDbPermission, async (req, res)
 router.put('/:database/:table/column/:column', auth, checkDbPermission, async (req, res) => {
     try {
         const { database, table, column } = req.params;
+        const { connectionId } = req.query;
         const { newName, type, nullable, defaultValue } = req.body;
 
-        const pool = await getDbConnection(database);
+        const pool = await getConnectionPool(connectionId, database);
 
         let sql = `ALTER TABLE \`${table}\` `;
 
@@ -131,9 +133,10 @@ router.put('/:database/:table/column/:column', auth, checkDbPermission, async (r
 router.post('/:database/:table/column', auth, checkDbPermission, async (req, res) => {
     try {
         const { database, table } = req.params;
+        const { connectionId } = req.query;
         const { name, type, nullable, defaultValue, afterColumn } = req.body;
 
-        const pool = await getDbConnection(database);
+        const pool = await getConnectionPool(connectionId, database);
 
         let sql = `ALTER TABLE \`${table}\` ADD COLUMN \`${name}\` ${type}`;
         if (nullable === false) sql += ' NOT NULL';
@@ -154,8 +157,9 @@ router.post('/:database/:table/column', auth, checkDbPermission, async (req, res
 router.delete('/:database/:table/column/:column', auth, checkDbPermission, async (req, res) => {
     try {
         const { database, table, column } = req.params;
+        const { connectionId } = req.query;
 
-        const pool = await getDbConnection(database);
+        const pool = await getConnectionPool(connectionId, database);
         const sql = `ALTER TABLE \`${table}\` DROP COLUMN \`${column}\``;
         await pool.execute(sql);
 
@@ -170,9 +174,10 @@ router.delete('/:database/:table/column/:column', auth, checkDbPermission, async
 router.put('/:database/:table/reorder', auth, checkDbPermission, async (req, res) => {
     try {
         const { database, table } = req.params;
+        const { connectionId } = req.query;
         const { column, type, afterColumn } = req.body;
 
-        const pool = await getDbConnection(database);
+        const pool = await getConnectionPool(connectionId, database);
 
         let sql = `ALTER TABLE \`${table}\` MODIFY COLUMN \`${column}\` ${type}`;
 
@@ -194,8 +199,9 @@ router.put('/:database/:table/reorder', auth, checkDbPermission, async (req, res
 router.delete('/:database/:table', auth, adminOnly, async (req, res) => {
     try {
         const { database, table } = req.params;
+        const { connectionId } = req.query;
 
-        const pool = await getDbConnection(database);
+        const pool = await getConnectionPool(connectionId, database);
         await pool.execute(`DROP TABLE \`${table}\``);
 
         res.json({ message: `Table '${table}' deleted successfully.` });

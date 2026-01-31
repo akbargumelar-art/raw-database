@@ -164,7 +164,7 @@ const DatabaseDesigner = () => {
 
         setCreating(true);
         try {
-            await schemaAPI.createTable(selectedDb, tableName, columns);
+            await schemaAPI.createTable(selectedDb, tableName, columns, selectedConnection?.id);
             toast.success(`Table '${tableName}' created successfully`);
             setTableName('');
             setColumns([{ name: 'id', type: 'INT', nullable: false, primaryKey: true, autoIncrement: true }]);
@@ -188,7 +188,7 @@ const DatabaseDesigner = () => {
                 newName: editColData.name,
                 type: editColData.type,
                 nullable: editColData.nullable
-            });
+            }, selectedConnection?.id);
             toast.success('Column updated');
             setEditingCol(null);
             loadStructure();
@@ -200,7 +200,7 @@ const DatabaseDesigner = () => {
     const deleteColumn = async (colName) => {
         if (!confirm(`Delete column '${colName}'?`)) return;
         try {
-            await schemaAPI.deleteColumn(selectedDb, selectedTable, colName);
+            await schemaAPI.deleteColumn(selectedDb, selectedTable, colName, selectedConnection?.id);
             toast.success('Column deleted');
             loadStructure();
         } catch (error) {
@@ -218,7 +218,7 @@ const DatabaseDesigner = () => {
             : structure[newIdx].name;
 
         try {
-            await schemaAPI.reorderColumn(selectedDb, selectedTable, col.name, col.type, afterColumn);
+            await schemaAPI.reorderColumn(selectedDb, selectedTable, col.name, col.type, afterColumn, selectedConnection?.id);
             toast.success('Column reordered');
             loadStructure();
         } catch (error) {

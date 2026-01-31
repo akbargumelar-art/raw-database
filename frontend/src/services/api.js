@@ -59,18 +59,18 @@ export const schemaAPI = {
             headers: { 'Content-Type': 'multipart/form-data' }
         });
     },
-    createTable: (database, tableName, columns) =>
-        api.post(`/schema/${database}/create-table`, { tableName, columns }),
-    editColumn: (database, table, column, data) =>
-        api.put(`/schema/${database}/${table}/column/${column}`, data),
-    addColumn: (database, table, data) =>
-        api.post(`/schema/${database}/${table}/column`, data),
-    deleteColumn: (database, table, column) =>
-        api.delete(`/schema/${database}/${table}/column/${column}`),
-    reorderColumn: (database, table, column, type, afterColumn) =>
-        api.put(`/schema/${database}/${table}/reorder`, { column, type, afterColumn }),
-    dropTable: (database, table) =>
-        api.delete(`/schema/${database}/${table}`)
+    createTable: (database, tableName, columns, connectionId) =>
+        api.post(`/schema/${database}/create-table`, { tableName, columns }, { params: { connectionId } }),
+    editColumn: (database, table, column, data, connectionId) =>
+        api.put(`/schema/${database}/${table}/column/${column}`, data, { params: { connectionId } }),
+    addColumn: (database, table, data, connectionId) =>
+        api.post(`/schema/${database}/${table}/column`, data, { params: { connectionId } }),
+    deleteColumn: (database, table, column, connectionId) =>
+        api.delete(`/schema/${database}/${table}/column/${column}`, { params: { connectionId } }),
+    reorderColumn: (database, table, column, type, afterColumn, connectionId) =>
+        api.put(`/schema/${database}/${table}/reorder`, { column, type, afterColumn }, { params: { connectionId } }),
+    dropTable: (database, table, connectionId) =>
+        api.delete(`/schema/${database}/${table}`, { params: { connectionId } })
 };
 
 // Data API

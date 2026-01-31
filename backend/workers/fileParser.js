@@ -55,8 +55,20 @@ async function parseFile(filePath, ext) {
         try {
             if (ext === '.csv') {
                 const rows = [];
+
+                // Auto-detect delimiter by reading first line
+                const firstLine = fs.readFileSync(filePath, 'utf8').split('\n')[0];
+                const commaCount = (firstLine.match(/,/g) || []).length;
+                const semicolonCount = (firstLine.match(/;/g) || []).length;
+                const delimiter = semicolonCount > commaCount ? ';' : ',';
+
+                parentPort.postMessage({
+                    type: 'log',
+                    message: `CSV delimiter detected: "${delimiter}" (commas: ${commaCount}, semicolons: ${semicolonCount})`
+                });
+
                 fs.createReadStream(filePath)
-                    .pipe(csv())
+                    .pipe(csv({ separator: delimiter }))
                     .on('data', (row) => rows.push(row))
                     .on('end', () => resolve(rows))
                     .on('error', reject);

@@ -104,7 +104,7 @@ export const uploadAPI = {
             onUploadProgress: onProgress
         });
     },
-    getProgress: (taskId) => api.get(`/upload/progress/${taskId}`),
+    getProgress: (taskId) => api.get(`/upload/progress/${taskId}`, { skipLoading: true }),
     downloadTemplate: (database, table, connectionId) =>
         api.get(`/upload/template/${database}/${table}`, {
             params: { connectionId },
@@ -121,7 +121,8 @@ export const uploadAPI = {
         formData.append('file', file);
         return api.post('/upload/file', formData, {
             headers: { 'Content-Type': 'multipart/form-data' },
-            onUploadProgress: onProgress
+            onUploadProgress: onProgress,
+            skipLoading: true
         });
     },
 
@@ -137,7 +138,7 @@ export const uploadAPI = {
             duplicateMode,
             duplicateCheckFields,
             connectionId
-        });
+        }, { skipLoading: true });
     },
 
     // Delete pending file

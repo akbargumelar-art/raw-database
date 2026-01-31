@@ -15,7 +15,10 @@ export const LoadingProvider = ({ children }) => {
         // Request interceptor
         const requestInterceptor = api.interceptors.request.use(
             (config) => {
-                showLoading();
+                // Skip loading overlay if skipLoading config is set
+                if (!config.skipLoading) {
+                    showLoading();
+                }
                 return config;
             },
             (error) => {
@@ -27,11 +30,16 @@ export const LoadingProvider = ({ children }) => {
         // Response interceptor
         const responseInterceptor = api.interceptors.response.use(
             (response) => {
-                hideLoading();
+                // Skip hiding if it was never shown
+                if (!response.config.skipLoading) {
+                    hideLoading();
+                }
                 return response;
             },
             (error) => {
-                hideLoading();
+                if (!error.config?.skipLoading) {
+                    hideLoading();
+                }
                 return Promise.reject(error);
             }
         );

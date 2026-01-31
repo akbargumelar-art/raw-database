@@ -41,11 +41,11 @@ export const authAPI = {
 
 // Database API
 export const databaseAPI = {
-    list: (connectionId) => api.get('/databases', { params: { connectionId } }),
-    getStats: (connectionId) => api.get('/databases/stats', { params: { connectionId } }),
-    getTables: (database, connectionId) => api.get(`/databases/${database}/tables`, { params: { connectionId } }),
-    getTableInfo: (database, table, connectionId) => api.get(`/databases/${database}/${table}`, { params: { connectionId } }),
-    getStructure: (database, table, connectionId) => api.get(`/databases/${database}/${table}/structure`, { params: { connectionId } }),
+    list: (connectionId) => api.get('/databases', { params: { connectionId }, skipLoading: true }),
+    getStats: (connectionId) => api.get('/databases/stats', { params: { connectionId }, skipLoading: true }),
+    getTables: (database, connectionId) => api.get(`/databases/${database}/tables`, { params: { connectionId }, skipLoading: true }),
+    getTableInfo: (database, table, connectionId) => api.get(`/databases/${database}/${table}`, { params: { connectionId }, skipLoading: true }),
+    getStructure: (database, table, connectionId) => api.get(`/databases/${database}/${table}/structure`, { params: { connectionId }, skipLoading: true }),
     create: (name) => api.post('/databases', { name }),
     drop: (database) => api.delete(`/databases/${database}`)
 };
